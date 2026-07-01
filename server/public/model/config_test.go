@@ -70,6 +70,12 @@ func TestConfigDefaults(t *testing.T) {
 		require.Equal(t, "", *c.SupportSettings.ReportAProblemMail)
 		require.Equal(t, true, *c.SupportSettings.AllowDownloadLogs)
 	})
+	t.Run("access control audit logging default", func(t *testing.T) {
+		c := Config{}
+		c.SetDefaults()
+		require.NotNil(t, c.AccessControlSettings.EnableAuditLogging)
+		require.False(t, *c.AccessControlSettings.EnableAuditLogging)
+	})
 }
 
 func TestConfigIsValid(t *testing.T) {

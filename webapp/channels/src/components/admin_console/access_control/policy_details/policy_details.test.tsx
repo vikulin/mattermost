@@ -70,6 +70,7 @@ describe('components/admin_console/access_control/policy_details/PolicyDetails',
             EnableUserManagedAttributes: false,
             TrustProxyDeviceIdentityHeader: false,
             EnforceDeviceIDConsistency: false,
+            EnableAuditLogging: false,
         },
         channels: [
             {id: 'channel1', name: 'Channel 1', display_name: 'Channel 1', team_display_name: 'Team 1', type: 'O'} as ChannelWithTeamData,

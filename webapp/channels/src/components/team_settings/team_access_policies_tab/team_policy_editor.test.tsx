@@ -39,6 +39,7 @@ describe('TeamPolicyEditor', () => {
             EnableUserManagedAttributes: false,
             TrustProxyDeviceIdentityHeader: false,
             EnforceDeviceIDConsistency: false,
+            EnableAuditLogging: false,
         },
         onNavigateBack: jest.fn(),
         actions: {

@@ -512,6 +512,12 @@ func NewServer(options ...Option) (*Server, error) {
 		}
 	}
 
+	if cfg := s.platform.Config(); cfg.AccessControlSettings.EnableAuditLogging != nil &&
+		*cfg.AccessControlSettings.EnableAuditLogging &&
+		!config.IsAuditLoggingActive(cfg.ExperimentalAuditSettings, allowAdvancedLogging) {
+		mlog.Warn("AccessControlSettings.EnableAuditLogging is enabled but no active audit log target is configured; ABAC policy-decision audit logging will have no effect. Enable ExperimentalAuditSettings.FileEnabled or configure an advanced audit logging target bound to an audit level.")
+	}
+
 	s.platform.RemoveUnlicensedLogTargets(license)
 	s.platform.EnableLoggingMetrics()
 
