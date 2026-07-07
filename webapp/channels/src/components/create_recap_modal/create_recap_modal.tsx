@@ -15,14 +15,14 @@ import {ScheduledRecapChannelModes, ScheduledRecapTimePeriods} from '@mattermost
 
 import {getAgents} from 'mattermost-redux/actions/agents';
 import {createRecap, createScheduledRecap, updateScheduledRecap, getRecapLimitStatus as fetchRecapLimitStatus} from 'mattermost-redux/actions/recaps';
-import {getAgents as getAgentsSelector} from 'mattermost-redux/selectors/entities/agents';
+import {getAgents as getAgentsSelector, getDefaultAgent} from 'mattermost-redux/selectors/entities/agents';
 import {getMyChannels, getUnreadChannelIds} from 'mattermost-redux/selectors/entities/channels';
 import {getRecapLimitStatus} from 'mattermost-redux/selectors/entities/recaps';
 import {getCurrentRelativeTeamUrl} from 'mattermost-redux/selectors/entities/teams';
 import {getCurrentTimezone} from 'mattermost-redux/selectors/entities/timezone';
 import {getCurrentUserId} from 'mattermost-redux/selectors/entities/users';
 
-import {AgentDropdown} from 'components/common/agents';
+import {AgentDropdown, useSelectedAgent} from 'components/common/agents';
 import PaginationDots from 'components/common/pagination_dots';
 import RecapUsageBadge from 'components/recaps/recap_usage_badge';
 
@@ -51,12 +51,14 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
     const unreadChannelIds = useSelector(getUnreadChannelIds);
     const agents = useSelector(getAgentsSelector);
     const limitStatus = useSelector(getRecapLimitStatus);
+    const defaultAgent = useSelector(getDefaultAgent);
+    const [preferredSelectedBotId, setPreferredSelectedBotId] = useSelectedAgent(agents);
 
     const [currentStep, setCurrentStep] = useState(1);
     const [recapName, setRecapName] = useState('');
     const [recapType, setRecapType] = useState<RecapType | null>(null);
     const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
-    const [selectedBotId, setSelectedBotId] = useState<string>('');
+    const [editSelectedBotId, setEditSelectedBotId] = useState<string | null>(null);
     const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -77,6 +79,7 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
 
     // Edit mode detection
     const isEditMode = Boolean(editScheduledRecap);
+    const selectedBotId = editSelectedBotId ?? preferredSelectedBotId;
 
     const manualLimitBlockMessage = useMemo(() => {
         if (!limitStatus || !runOnce) {
@@ -108,13 +111,6 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
         dispatch(getAgents());
     }, [dispatch]);
 
-    // Set default bot when agents are loaded
-    useEffect(() => {
-        if (agents.length > 0 && !selectedBotId) {
-            setSelectedBotId(agents[0].id);
-        }
-    }, [agents, selectedBotId]);
-
     // Pre-fill form for edit mode
     useEffect(() => {
         if (editScheduledRecap) {
@@ -125,7 +121,7 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
             setTimeOfDay(editScheduledRecap.time_of_day);
             setTimePeriod(editScheduledRecap.time_period);
             setCustomInstructions(editScheduledRecap.custom_instructions || '');
-            setSelectedBotId(editScheduledRecap.agent_id);
+            setEditSelectedBotId(editScheduledRecap.agent_id);
 
             // Don't set runOnce in edit mode - it's always a scheduled recap
         }
@@ -399,8 +395,11 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
     const confirmButtonText = getConfirmButtonText();
 
     const handleBotSelect = useCallback((botId: string) => {
-        setSelectedBotId(botId);
-    }, []);
+        if (isEditMode) {
+            setEditSelectedBotId(botId);
+        }
+        setPreferredSelectedBotId(botId);
+    }, [isEditMode, setPreferredSelectedBotId]);
 
     const handleAgentMenuToggle = useCallback((isOpen: boolean) => {
         setIsAgentMenuOpen(isOpen);
@@ -421,7 +420,7 @@ const CreateRecapModal = ({onExited, editScheduledRecap}: Props) => {
                     selectedBotId={selectedBotId}
                     onBotSelect={handleBotSelect}
                     bots={agents}
-                    defaultBotId={agents.length > 0 ? agents[0].id : undefined}
+                    defaultBotId={defaultAgent?.id}
                     disabled={isSubmitting}
                     onMenuToggle={handleAgentMenuToggle}
                 />
