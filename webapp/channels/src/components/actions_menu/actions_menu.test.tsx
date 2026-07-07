@@ -184,7 +184,7 @@ describe('components/actions_menu/ActionsMenu', () => {
         expect(portal?.querySelector('.Menu')).not.toBeNull();
     });
 
-    test('mobile view - clicking an item in the portaled menu runs its action instead of being swallowed by the blur handler', () => {
+    test('mobile view - items in the portaled menu are reachable and invoke their action with the post id', () => {
         jest.mocked(isMobile).mockReturnValue(true);
 
         const action = jest.fn();
