@@ -370,7 +370,10 @@ export class ActionMenuClass extends React.PureComponent<Props, State> {
                         isMenuOpen={this.props.isMenuOpen}
                     />
                     {this.props.isMobileView ? createPortal(
-                        <div className='post-actions-menu-mobile'>
+                        <div
+                            className='post-actions-menu-mobile'
+                            data-menu-portal='true'
+                        >
                             {menu}
                         </div>,
                         document.body,

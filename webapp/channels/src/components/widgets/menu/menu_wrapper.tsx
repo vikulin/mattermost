@@ -106,7 +106,15 @@ export default class MenuWrapper extends React.PureComponent<Props, State> {
     };
 
     private closeOnBlur = (e: Event) => {
-        if (this.node && this.node.current && e.target && this.node.current.contains(e.target as Node)) {
+        const target = e.target as Node;
+
+        if (this.node && this.node.current && target && this.node.current.contains(target)) {
+            return;
+        }
+
+        // The menu may be rendered through a portal (e.g. ActionsMenu in mobile view), so it lives
+        // outside this wrapper in the DOM. Treat clicks inside a portaled menu as clicks inside the menu.
+        if (target instanceof Element && target.closest('[data-menu-portal]')) {
             return;
         }
 
