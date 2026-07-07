@@ -705,6 +705,49 @@ func TestProcessRecapChannel(t *testing.T) {
 		assert.Len(t, recapChannels[0].SourcePostIds, 1)
 	})
 
+	t.Run("denies channel when user lacks read permission", func(t *testing.T) {
+		bridge := &testAgentsBridge{
+			completeFn: func(sessionUserID, agentID string, req BridgeCompletionRequest) (string, error) {
+				require.Fail(t, "bridge should not be called when user lacks channel access")
+				return "", nil
+			},
+		}
+
+		th := Setup(t, WithAgentsBridge(bridge)).InitBasic(t)
+		th.App.UpdateConfig(func(cfg *model.Config) { cfg.FeatureFlags.EnableAIRecaps = true })
+
+		// Private channel owned by another user; BasicUser is not a member.
+		channel := th.CreatePrivateChannel(t, th.BasicTeam, func(c *model.Channel) {
+			c.CreatorId = th.BasicUser2.Id
+		})
+		th.CreatePost(t, channel, func(p *model.Post) { p.UserId = th.BasicUser2.Id })
+
+		ctx := th.Context.WithSession(&model.Session{UserId: th.BasicUser.Id})
+		recapID := model.NewId()
+		agentID := "test-agent"
+		_, storeErr := th.App.Srv().Store().Recap().SaveRecap(&model.Recap{
+			Id:       recapID,
+			UserId:   th.BasicUser.Id,
+			Title:    "Unauthorized recap",
+			CreateAt: model.GetMillis(),
+			UpdateAt: model.GetMillis(),
+			Status:   model.RecapStatusProcessing,
+			BotID:    agentID,
+		})
+		require.NoError(t, storeErr)
+
+		result, err := th.App.ProcessRecapChannel(ctx, recapID, channel.Id, th.BasicUser.Id, agentID)
+		require.NotNil(t, err)
+		assert.Equal(t, "app.recap.permission_denied", err.Id)
+		require.NotNil(t, result)
+		assert.False(t, result.Success)
+		assert.Empty(t, bridge.completeCalls)
+
+		recapChannels, storeErr := th.App.Srv().Store().Recap().GetRecapChannelsByRecapId(recapID)
+		require.NoError(t, storeErr)
+		assert.Empty(t, recapChannels)
+	})
+
 	t.Run("max posts per day prevents additional post processing", func(t *testing.T) {
 		bridge := &testAgentsBridge{
 			completeFn: func(sessionUserID, agentID string, req BridgeCompletionRequest) (string, error) {

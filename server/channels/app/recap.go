@@ -296,6 +296,12 @@ func (a *App) ProcessRecapChannelWithOptions(rctx request.CTX, recapID, channelI
 		Success:   false,
 	}
 
+	// Re-verify read access at execution time. Scheduled recaps run long after
+	// creation, so a user's channel access may have been revoked since then.
+	if ok, _ := a.HasPermissionToChannel(rctx, userID, channelID, model.PermissionReadChannel); !ok {
+		return result, model.NewAppError("ProcessRecapChannel", "app.recap.permission_denied", nil, "", http.StatusForbidden)
+	}
+
 	// Get channel info
 	channel, err := a.GetChannel(rctx, channelID)
 	if err != nil {
