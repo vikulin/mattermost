@@ -5,7 +5,7 @@ import React from 'react';
 
 import type {PostType} from '@mattermost/types/posts';
 
-import {renderWithContext} from 'tests/react_testing_utils';
+import {fireEvent, renderWithContext} from 'tests/react_testing_utils';
 import {TestHelper} from 'utils/test_helper';
 
 import type {PostDropdownMenuAction, PostDropdownMenuItemComponent} from 'types/store/plugins';
@@ -182,6 +182,37 @@ describe('components/actions_menu/ActionsMenu', () => {
         // The menu and its items render inside the portal.
         expect(portal).toHaveTextContent('App Marketplace');
         expect(portal?.querySelector('.Menu')).not.toBeNull();
+    });
+
+    test('mobile view - clicking an item in the portaled menu runs its action instead of being swallowed by the blur handler', () => {
+        jest.mocked(isMobile).mockReturnValue(true);
+
+        const action = jest.fn();
+        const pluginMenuItems: PostDropdownMenuAction[] = [{
+            id: 'the_component_id',
+            pluginId: 'playbooks',
+            text: 'Run playbook',
+            action,
+            filter: jest.fn(() => true),
+        }];
+
+        renderWithContext(
+            <ActionsMenu
+                {...baseProps}
+                isMobileView={true}
+                pluginMenuItems={pluginMenuItems}
+                canOpenMarketplace={true}
+            />,
+        );
+
+        const portal = document.body.querySelector('.post-actions-menu-mobile[data-menu-portal]');
+        const item = [...(portal?.querySelectorAll('button, a') ?? [])].
+            find((el) => el.textContent === 'Run playbook');
+        expect(item).toBeDefined();
+
+        fireEvent.click(item as Element);
+
+        expect(action).toHaveBeenCalledWith('post_id_1');
     });
 
     test('desktop view - renders the menu inline without a portal', () => {

@@ -311,6 +311,32 @@ describe('components/MenuWrapper', () => {
         expect(wrapper).not.toHaveClass('MenuWrapper--open');
     });
 
+    test('should not close on TAB when focus moves into a menu rendered through a portal', async () => {
+        const {container} = render(
+            <div>
+                <MenuWrapper>
+                    <button>{'title'}</button>
+                    <div>{'menu'}</div>
+                </MenuWrapper>
+                <div data-menu-portal='true'>
+                    <button>{'portaled item'}</button>
+                </div>
+            </div>,
+        );
+
+        const wrapper = container.querySelector('.MenuWrapper');
+        const titleButton = container.querySelectorAll('button')[0];
+
+        await userEvent.click(titleButton);
+        expect(wrapper).toHaveClass('MenuWrapper--open');
+
+        // Tabbing into the portaled menu must not be treated as focus leaving the menu.
+        const portaledItem = container.querySelectorAll('button')[1];
+        fireEvent.keyUp(portaledItem, {key: 'Tab', code: 'Tab'});
+
+        expect(wrapper).toHaveClass('MenuWrapper--open');
+    });
+
     test('should not call onToggle when menu is already closed', async () => {
         const onToggle = jest.fn();
         const {container} = render(
