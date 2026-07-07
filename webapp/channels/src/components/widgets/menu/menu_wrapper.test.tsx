@@ -255,6 +255,62 @@ describe('components/MenuWrapper', () => {
         expect(onToggle).toHaveBeenCalledWith(false);
     });
 
+    test('should not close when clicking inside a menu rendered through a portal', async () => {
+        const onToggle = jest.fn();
+        const {container} = render(
+            <div>
+                <MenuWrapper onToggle={onToggle}>
+                    <button>{'title'}</button>
+                    <div>{'menu'}</div>
+                </MenuWrapper>
+                <div data-menu-portal='true'>
+                    <button>{'portaled item'}</button>
+                </div>
+            </div>,
+        );
+
+        const wrapper = container.querySelector('.MenuWrapper');
+        const titleButton = container.querySelectorAll('button')[0];
+
+        await userEvent.click(titleButton);
+        expect(wrapper).toHaveClass('MenuWrapper--open');
+        onToggle.mockClear();
+
+        // A portaled menu lives outside the wrapper node, so this click would otherwise be treated
+        // as a blur. It should be recognized as a click inside the menu and keep it open.
+        const portaledItem = container.querySelectorAll('button')[1];
+        fireEvent.click(portaledItem);
+
+        expect(onToggle).not.toHaveBeenCalledWith(false);
+        expect(wrapper).toHaveClass('MenuWrapper--open');
+    });
+
+    test('should close when clicking outside both the wrapper and any portaled menu', async () => {
+        const onToggle = jest.fn();
+        const {container} = render(
+            <div>
+                <MenuWrapper onToggle={onToggle}>
+                    <button>{'title'}</button>
+                    <div>{'menu'}</div>
+                </MenuWrapper>
+                <button>{'outside'}</button>
+            </div>,
+        );
+
+        const wrapper = container.querySelector('.MenuWrapper');
+        const titleButton = container.querySelectorAll('button')[0];
+
+        await userEvent.click(titleButton);
+        expect(wrapper).toHaveClass('MenuWrapper--open');
+        onToggle.mockClear();
+
+        const outsideButton = container.querySelectorAll('button')[1];
+        fireEvent.click(outsideButton);
+
+        expect(onToggle).toHaveBeenCalledWith(false);
+        expect(wrapper).not.toHaveClass('MenuWrapper--open');
+    });
+
     test('should not call onToggle when menu is already closed', async () => {
         const onToggle = jest.fn();
         const {container} = render(
