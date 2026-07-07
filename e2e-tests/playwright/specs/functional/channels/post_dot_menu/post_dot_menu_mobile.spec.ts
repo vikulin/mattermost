@@ -3,7 +3,8 @@
 
 import type {Page} from '@playwright/test';
 
-import {expect, test, PlaywrightExtended} from '@mattermost/playwright-lib';
+import type {PlaywrightExtended} from '@mattermost/playwright-lib';
+import {expect, test} from '@mattermost/playwright-lib';
 
 test.describe('Post dot menu in mobile view', () => {
     // A narrow width triggers the mobile/responsive layout, where the post
