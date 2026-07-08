@@ -10,6 +10,7 @@ import {TestHelper} from 'utils/test_helper';
 
 describe('shouldOpenUp', () => {
     test.each([
+
         // Short lists never open up, so a short modal keeps its natural downward menus.
         [0, 1, false],
         [0, 3, false],
