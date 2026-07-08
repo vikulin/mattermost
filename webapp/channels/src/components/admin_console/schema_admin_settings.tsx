@@ -40,6 +40,7 @@ import * as I18n from 'i18n/i18n';
 import Constants from 'utils/constants';
 import {mappingValueFromRoles, rolesFromMapping} from 'utils/policy_roles_adapter';
 
+import ProductionWarning from './production_warning';
 import Setting from './setting';
 import type {AdminDefinitionConfigSchemaSection, AdminDefinitionSetting, AdminDefinitionSettingBanner, AdminDefinitionSettingDropdownOption, AdminDefinitionSubSectionSchema, ConsoleAccess} from './types';
 
@@ -375,6 +376,20 @@ export class SchemaAdminSettings extends React.PureComponent<SchemaAdminSettings
         return Boolean(section.isHidden);
     };
 
+    renderHelpTextWithWarning = (setting: AdminDefinitionSetting) => {
+        return (
+            <>
+                <ProductionWarning
+                    setting={setting}
+                    config={this.props.config}
+                    state={this.state}
+                    license={this.props.license}
+                />
+                {renderSettingHelpText(setting, this.props.schema, this.isDisabled(setting))}
+            </>
+        );
+    };
+
     buildButtonSetting = (setting: AdminDefinitionSetting) => {
         if (!this.props.schema || setting.type !== 'button') {
             return (<></>);
@@ -484,7 +499,7 @@ export class SchemaAdminSettings extends React.PureComponent<SchemaAdminSettings
         }
 
         const label = renderLabel(setting, this.props.schema, this.props.intl);
-        const helpText = renderSettingHelpText(setting, this.props.schema, this.isDisabled(setting));
+        const helpText = this.renderHelpTextWithWarning(setting);
 
         return (
             <TextSetting
@@ -532,7 +547,7 @@ export class SchemaAdminSettings extends React.PureComponent<SchemaAdminSettings
         }
 
         const label = renderLabel(setting, this.props.schema, this.props.intl);
-        const helpText = renderSettingHelpText(setting, this.props.schema, this.isDisabled(setting));
+        const helpText = this.renderHelpTextWithWarning(setting);
 
         return (
             <BooleanSetting

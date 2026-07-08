@@ -29,6 +29,12 @@ export type ConsoleAccess = {read: {[key: string]: boolean}; write: {[key: strin
 
 type Validator = (value: any) => ValidationResult;
 
+export type AdminDefinitionSettingProductionWarning = {
+    isEnabled: Check;
+    title: MessageDescriptor;
+    text: MessageDescriptor;
+};
+
 type AdminDefinitionSettingCustom = Omit<AdminDefinitionSettingBase, 'label'> & {
     type: 'custom';
     key: string;
@@ -52,6 +58,7 @@ type AdminDefinitionSettingBase = {
     onConfigSave?: (displayVal: any, previousVal?: any) => any;
     isHidden?: Check;
     isDisabled?: Check;
+    production_warning?: AdminDefinitionSettingProductionWarning;
 };
 
 export type AdminDefinitionSettingBanner = AdminDefinitionSettingBase & {

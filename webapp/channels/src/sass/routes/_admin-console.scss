@@ -232,6 +232,11 @@
             .help-text-warning {
                 color: var(--error-text)
             }
+
+            .admin-console__production-warning {
+                margin-bottom: 12px;
+                white-space: normal;
+            }
         }
 
         .form-group {
