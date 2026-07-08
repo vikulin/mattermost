@@ -5,12 +5,12 @@ import React from 'react';
 
 import ManageTeamsDropdown from 'components/admin_console/manage_teams_modal/manage_teams_dropdown';
 
-import {renderWithContext, screen} from 'tests/react_testing_utils';
+import {renderWithContext, screen, userEvent, waitFor} from 'tests/react_testing_utils';
 import {TestHelper} from 'utils/test_helper';
 
 describe('ManageTeamsDropdown', () => {
     const baseProps = {
-        team: TestHelper.getTeamMock(),
+        team: TestHelper.getTeamMock({id: 'teamid', group_constrained: false}),
         user: TestHelper.getUserMock({
             id: 'currentUserId',
             last_picture_update: 1234,
@@ -28,84 +28,104 @@ describe('ManageTeamsDropdown', () => {
         totalTeams: 1,
         onError: jest.fn(),
         onMemberChange: jest.fn(),
-        updateTeamMemberSchemeRoles: jest.fn(),
+        updateTeamMemberSchemeRoles: jest.fn().mockResolvedValue({}),
         handleRemoveUserFromTeam: jest.fn(),
     };
 
-    test('should match snapshot for team member', () => {
-        const {container} = renderWithContext(
-            <ManageTeamsDropdown {...baseProps}/>,
-        );
+    test('shows the "Team Member" role for a plain member and the member actions when opened', async () => {
+        renderWithContext(<ManageTeamsDropdown {...baseProps}/>);
 
-        expect(screen.getByText('Team Member')).toBeInTheDocument();
-        expect(container).toMatchSnapshot();
+        await userEvent.click(screen.getByRole('button', {name: /Team Member/i}));
+
+        expect(screen.getByRole('menuitem', {name: 'Make Team Admin'})).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', {name: 'Remove from Team'})).toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', {name: 'Make Team Member'})).not.toBeInTheDocument();
     });
 
-    test('should match snapshot for system admin', () => {
-        const user = {
-            ...baseProps.user,
-            roles: 'system_admin',
-        };
-
+    test('shows the "Team Admin" role and the demote action for a team admin', async () => {
         const props = {
             ...baseProps,
-            user,
+            teamMember: {...baseProps.teamMember, scheme_admin: true},
         };
 
-        const {container} = renderWithContext(
-            <ManageTeamsDropdown {...props}/>,
-        );
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
 
-        expect(screen.getByText('System Admin')).toBeInTheDocument();
-        expect(container).toMatchSnapshot();
+        await userEvent.click(screen.getByRole('button', {name: /Team Admin/i}));
+
+        expect(screen.getByRole('menuitem', {name: 'Make Team Member'})).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', {name: 'Remove from Team'})).toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', {name: 'Make Team Admin'})).not.toBeInTheDocument();
     });
 
-    test('should match snapshot for team admin', () => {
-        const user = {
-            ...baseProps.user,
-            roles: 'system_user',
-        };
-
-        const teamMember = {
-            ...baseProps.teamMember,
-            scheme_admin: true,
-        };
-
+    test('shows the "Guest" role and no promotion action for a guest', async () => {
         const props = {
             ...baseProps,
-            user,
-            teamMember,
+            user: {...baseProps.user, roles: 'system_guest'},
         };
 
-        const {container} = renderWithContext(
-            <ManageTeamsDropdown {...props}/>,
-        );
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
 
-        expect(screen.getByText('Team Admin')).toBeInTheDocument();
-        expect(container).toMatchSnapshot();
+        await userEvent.click(screen.getByRole('button', {name: /Guest/i}));
+
+        expect(screen.getByRole('menuitem', {name: 'Remove from Team'})).toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', {name: 'Make Team Admin'})).not.toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', {name: 'Make Team Member'})).not.toBeInTheDocument();
     });
 
-    test('should match snapshot for guest', () => {
-        const user = {
-            ...baseProps.user,
-            roles: 'system_guest',
-        };
-
-        const teamMember = {
-            ...baseProps.teamMember,
-        };
-
+    test('hides "Remove from Team" for a group constrained team', async () => {
         const props = {
             ...baseProps,
-            user,
-            teamMember,
+            team: TestHelper.getTeamMock({id: 'teamid', group_constrained: true}),
         };
 
-        const {container} = renderWithContext(
-            <ManageTeamsDropdown {...props}/>,
-        );
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
 
-        expect(screen.getByText('Guest')).toBeInTheDocument();
-        expect(container).toMatchSnapshot();
+        await userEvent.click(screen.getByRole('button', {name: /Team Member/i}));
+
+        expect(screen.getByRole('menuitem', {name: 'Make Team Admin'})).toBeInTheDocument();
+        expect(screen.queryByRole('menuitem', {name: 'Remove from Team'})).not.toBeInTheDocument();
+    });
+
+    test('promotes the member to team admin and reports the change', async () => {
+        renderWithContext(<ManageTeamsDropdown {...baseProps}/>);
+
+        await userEvent.click(screen.getByRole('button', {name: /Team Member/i}));
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Make Team Admin'}));
+
+        await waitFor(() => {
+            expect(baseProps.updateTeamMemberSchemeRoles).toHaveBeenCalledWith('teamid', 'currentUserId', true, true);
+        });
+        expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
+    });
+
+    test('removes the user from the team', async () => {
+        renderWithContext(<ManageTeamsDropdown {...baseProps}/>);
+
+        await userEvent.click(screen.getByRole('button', {name: /Team Member/i}));
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Remove from Team'}));
+
+        await waitFor(() => {
+            expect(baseProps.handleRemoveUserFromTeam).toHaveBeenCalledWith('teamid');
+        });
+    });
+
+    test('surfaces an error when the promotion request fails', async () => {
+        const onError = jest.fn();
+        const props = {
+            ...baseProps,
+            onError,
+            onMemberChange: jest.fn(),
+            updateTeamMemberSchemeRoles: jest.fn().mockResolvedValue({error: {message: 'boom'}}),
+        };
+
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
+
+        await userEvent.click(screen.getByRole('button', {name: /Team Member/i}));
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Make Team Admin'}));
+
+        await waitFor(() => {
+            expect(onError).toHaveBeenCalled();
+        });
+        expect(props.onMemberChange).not.toHaveBeenCalled();
     });
 });
