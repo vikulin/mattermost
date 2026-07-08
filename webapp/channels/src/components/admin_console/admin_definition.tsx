@@ -2571,11 +2571,6 @@ const AdminDefinition: AdminDefinitionType = {
                     name: defineMessage({id: 'admin.developer.title', defaultMessage: 'Developer Settings'}),
                     settings: [
                         {
-                            type: 'banner',
-                            label: defineMessage({id: 'admin.service.testingWarning', defaultMessage: 'Warning: Testing commands are intended only for isolated non-production environments with test users and sample data. Never enable this setting in production.'}),
-                            banner_type: 'warning',
-                        },
-                        {
                             type: 'bool',
                             key: 'ServiceSettings.EnableTesting',
                             label: defineMessage({id: 'admin.service.testingTitle', defaultMessage: 'Enable Testing Commands:'}),
