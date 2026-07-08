@@ -814,6 +814,75 @@ describe('components/admin_console/SchemaAdminSettings', () => {
             await userEvent.type(textInput, '*');
             expect(await screen.findByText(WARNING_TITLE)).toBeInTheDocument();
         });
+
+        test('renders the callout when a setting warns on its false value', () => {
+            const schemaWarnOnFalse = {
+                id: 'Config',
+                name: 'config',
+                settings: [
+                    {
+                        key: 'FirstSettings.verifySetting',
+                        label: 'verify-label',
+                        type: 'bool',
+                        default: true,
+                        help_text: 'verify-help-text',
+                        production_warning: {
+                            isEnabled: it.stateIsFalse('FirstSettings.verifySetting'),
+                            title: defineMessage({id: 'test.production.verify.title', defaultMessage: WARNING_TITLE}),
+                            text: defineMessage({id: 'test.production.verify.text', defaultMessage: WARNING_TEXT}),
+                        },
+                    },
+                ],
+            } as unknown as AdminDefinitionSubSectionSchema;
+
+            const {container} = renderWithContext(
+                <SchemaAdminSettings
+                    {...DefaultProps}
+                    config={{FirstSettings: {verifySetting: false}} as Partial<AdminConfig>}
+                    environmentConfig={{}}
+                    schema={schemaWarnOnFalse}
+                    patchConfig={jest.fn()}
+                />,
+            );
+
+            expect(screen.getByText(WARNING_TITLE)).toBeInTheDocument();
+            expect(container.querySelector('.sectionNoticeContainer.danger')).toBeInTheDocument();
+        });
+
+        test('does not render the callout when the setting is disabled even at the insecure value', () => {
+            const disabledSchema = {
+                id: 'Config',
+                name: 'config',
+                settings: [
+                    {
+                        key: 'FirstSettings.dangerSetting',
+                        label: 'danger-label',
+                        type: 'bool',
+                        default: false,
+                        help_text: 'danger-help-text',
+                        isDisabled: true,
+                        production_warning: {
+                            isEnabled: it.stateIsTrue('FirstSettings.dangerSetting'),
+                            title: defineMessage({id: 'test.production.disabled.title', defaultMessage: WARNING_TITLE}),
+                            text: defineMessage({id: 'test.production.disabled.text', defaultMessage: WARNING_TEXT}),
+                        },
+                    },
+                ],
+            } as unknown as AdminDefinitionSubSectionSchema;
+
+            const {container} = renderWithContext(
+                <SchemaAdminSettings
+                    {...DefaultProps}
+                    config={{FirstSettings: {dangerSetting: true}} as Partial<AdminConfig>}
+                    environmentConfig={{}}
+                    schema={disabledSchema}
+                    patchConfig={jest.fn()}
+                />,
+            );
+
+            expect(screen.queryByText(WARNING_TITLE)).not.toBeInTheDocument();
+            expect(container.querySelector('.sectionNoticeContainer.danger')).not.toBeInTheDocument();
+        });
     });
 
     test('should call patchConfig on form submission', async () => {

@@ -384,6 +384,7 @@ export class SchemaAdminSettings extends React.PureComponent<SchemaAdminSettings
                     config={this.props.config}
                     state={this.state}
                     license={this.props.license}
+                    isDisabled={this.isDisabled(setting)}
                 />
                 {renderSettingHelpText(setting, this.props.schema, this.isDisabled(setting))}
             </>

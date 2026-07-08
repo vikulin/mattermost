@@ -39,6 +39,7 @@ const LDAPBooleanSetting = (props: BoolSettingProps) => {
                 config={props.config}
                 state={props.state}
                 license={props.license}
+                isDisabled={Boolean(props.disabled)}
             />
             {renderLDAPSettingHelpText(props.setting, props.schema, Boolean(props.disabled))}
         </>

@@ -15,13 +15,14 @@ type Props = {
     config: Partial<AdminConfig>;
     state: {[x: string]: any};
     license?: ClientLicense;
+    isDisabled?: boolean;
 };
 
-const ProductionWarning = ({setting, config, state, license}: Props) => {
+const ProductionWarning = ({setting, config, state, license, isDisabled}: Props) => {
     const intl = useIntl();
 
     const warning = setting.production_warning;
-    if (!warning) {
+    if (!warning || isDisabled) {
         return null;
     }
 
