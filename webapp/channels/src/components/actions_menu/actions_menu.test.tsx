@@ -5,12 +5,12 @@ import React from 'react';
 
 import type {PostType} from '@mattermost/types/posts';
 
+import {isMobile} from 'components/widgets/menu/is_mobile_view_hack';
+
 import {fireEvent, renderWithContext} from 'tests/react_testing_utils';
 import {TestHelper} from 'utils/test_helper';
 
 import type {PostDropdownMenuAction, PostDropdownMenuItemComponent} from 'types/store/plugins';
-
-import {isMobile} from 'components/widgets/menu/is_mobile_view_hack';
 
 import ActionsMenu from './actions_menu';
 import type {Props} from './actions_menu';
