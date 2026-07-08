@@ -117,8 +117,8 @@ describe('ManageTeamsDropdown', () => {
 
         await waitFor(() => {
             expect(baseProps.updateTeamMemberSchemeRoles).toHaveBeenCalledWith('teamid', 'currentUserId', true, true);
+            expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
         });
-        expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
     });
 
     test('demotes a team admin to member and reports the change', async () => {
@@ -134,8 +134,8 @@ describe('ManageTeamsDropdown', () => {
 
         await waitFor(() => {
             expect(baseProps.updateTeamMemberSchemeRoles).toHaveBeenCalledWith('teamid', 'currentUserId', true, false);
+            expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
         });
-        expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
     });
 
     test('removes the user from the team', async () => {
