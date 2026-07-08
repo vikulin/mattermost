@@ -58,6 +58,7 @@ type AdminDefinitionSettingBase = {
     onConfigSave?: (displayVal: any, previousVal?: any) => any;
     isHidden?: Check;
     isDisabled?: Check;
+
     // Danger callout when isEnabled is true. Wired for bool/text settings in schema_admin_settings and ldap_boolean_setting.
     production_warning?: AdminDefinitionSettingProductionWarning;
 };
