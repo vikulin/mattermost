@@ -13,10 +13,14 @@ import {isAdmin, isSystemAdmin, isGuest} from 'mattermost-redux/utils/user_utils
 import Menu from 'components/widgets/menu/menu';
 import MenuWrapper from 'components/widgets/menu/menu_wrapper';
 
+const ROWS_FROM_BOTTOM_TO_OPEN_UP = 3;
+
 type Props = {
     team: Team;
     user: UserProfile;
     teamMember: TeamMembership;
+    index: number;
+    totalTeams: number;
     onError: (error: JSX.Element) => void;
     onMemberChange: (teamId: string) => void;
     updateTeamMemberSchemeRoles: (teamId: string, userId: string, isSchemeUser: boolean, isSchemeAdmin: boolean) => Promise<ActionResult>;
@@ -59,7 +63,10 @@ const ManageTeamsDropdown = (props: Props) => {
     const isSysAdmin = isSystemAdmin(props.user.roles);
     const isGuestUser = isGuest(props.user.roles);
 
-    const {team} = props;
+    const {team, index, totalTeams} = props;
+
+    const openUp = totalTeams > ROWS_FROM_BOTTOM_TO_OPEN_UP && totalTeams - index <= ROWS_FROM_BOTTOM_TO_OPEN_UP;
+
     let title;
     if (isSysAdmin) {
         title = formatMessage({id: 'admin.user_item.sysAdmin', defaultMessage: 'System Admin'});
@@ -79,6 +86,7 @@ const ManageTeamsDropdown = (props: Props) => {
             </a>
             <Menu
                 openLeft={true}
+                openUp={openUp}
                 ariaLabel={formatMessage({id: 'team_members_dropdown.menuAriaLabel', defaultMessage: 'Change the role of a team member'})}
             >
                 <Menu.ItemAction

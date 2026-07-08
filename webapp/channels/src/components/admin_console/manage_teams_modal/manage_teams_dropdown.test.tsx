@@ -24,6 +24,8 @@ describe('ManageTeamsDropdown', () => {
             scheme_guest: false,
             scheme_admin: false,
         }),
+        index: 0,
+        totalTeams: 1,
         onError: jest.fn(),
         onMemberChange: jest.fn(),
         updateTeamMemberSchemeRoles: jest.fn(),
