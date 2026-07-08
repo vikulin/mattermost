@@ -15,6 +15,12 @@ import DropdownIcon from 'components/widgets/icons/fa_dropdown_icon';
 
 const ROWS_FROM_BOTTOM_TO_OPEN_UP = 3;
 
+// The role dropdown opens upward for rows near the bottom of the list so its menu
+// stays inside the modal instead of overflowing below it (MM-69226).
+export function shouldOpenUp(index: number, totalTeams: number): boolean {
+    return totalTeams > ROWS_FROM_BOTTOM_TO_OPEN_UP && totalTeams - index <= ROWS_FROM_BOTTOM_TO_OPEN_UP;
+}
+
 type Props = {
     team: Team;
     user: UserProfile;
@@ -65,7 +71,7 @@ const ManageTeamsDropdown = (props: Props) => {
 
     const {team, index, totalTeams} = props;
 
-    const openUp = totalTeams > ROWS_FROM_BOTTOM_TO_OPEN_UP && totalTeams - index <= ROWS_FROM_BOTTOM_TO_OPEN_UP;
+    const openUp = shouldOpenUp(index, totalTeams);
 
     let title;
     if (isSysAdmin) {

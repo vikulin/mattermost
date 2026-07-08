@@ -3,10 +3,28 @@
 
 import React from 'react';
 
-import ManageTeamsDropdown from 'components/admin_console/manage_teams_modal/manage_teams_dropdown';
+import ManageTeamsDropdown, {shouldOpenUp} from 'components/admin_console/manage_teams_modal/manage_teams_dropdown';
 
 import {renderWithContext, screen, userEvent, waitFor} from 'tests/react_testing_utils';
 import {TestHelper} from 'utils/test_helper';
+
+describe('shouldOpenUp', () => {
+    test.each([
+        // Short lists never open up, so a short modal keeps its natural downward menus.
+        [0, 1, false],
+        [0, 3, false],
+        [2, 3, false],
+
+        // Long lists open up only for the last few rows so the menu stays inside the modal.
+        [0, 20, false],
+        [16, 20, false],
+        [17, 20, true],
+        [18, 20, true],
+        [19, 20, true],
+    ])('index %i of %i teams -> openUp %s', (index, totalTeams, expected) => {
+        expect(shouldOpenUp(index, totalTeams)).toBe(expected);
+    });
+});
 
 describe('ManageTeamsDropdown', () => {
     const baseProps = {
@@ -31,6 +49,10 @@ describe('ManageTeamsDropdown', () => {
         updateTeamMemberSchemeRoles: jest.fn().mockResolvedValue({}),
         handleRemoveUserFromTeam: jest.fn(),
     };
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
 
     test('shows the "Team Member" role for a plain member and the member actions when opened', async () => {
         renderWithContext(<ManageTeamsDropdown {...baseProps}/>);
@@ -98,6 +120,23 @@ describe('ManageTeamsDropdown', () => {
         expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
     });
 
+    test('demotes a team admin to member and reports the change', async () => {
+        const props = {
+            ...baseProps,
+            teamMember: {...baseProps.teamMember, scheme_admin: true},
+        };
+
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
+
+        await userEvent.click(screen.getByRole('button', {name: /Team Admin/i}));
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Make Team Member'}));
+
+        await waitFor(() => {
+            expect(baseProps.updateTeamMemberSchemeRoles).toHaveBeenCalledWith('teamid', 'currentUserId', true, false);
+        });
+        expect(baseProps.onMemberChange).toHaveBeenCalledWith('teamid');
+    });
+
     test('removes the user from the team', async () => {
         renderWithContext(<ManageTeamsDropdown {...baseProps}/>);
 
@@ -109,7 +148,7 @@ describe('ManageTeamsDropdown', () => {
         });
     });
 
-    test('surfaces an error when the promotion request fails', async () => {
+    test('surfaces the promotion error message when the request fails', async () => {
         const onError = jest.fn();
         const props = {
             ...baseProps,
@@ -126,6 +165,29 @@ describe('ManageTeamsDropdown', () => {
         await waitFor(() => {
             expect(onError).toHaveBeenCalled();
         });
+        expect(onError.mock.calls[0][0].props.id).toBe('admin.manage_teams.makeAdminError');
+        expect(props.onMemberChange).not.toHaveBeenCalled();
+    });
+
+    test('surfaces the demotion error message when the request fails', async () => {
+        const onError = jest.fn();
+        const props = {
+            ...baseProps,
+            teamMember: {...baseProps.teamMember, scheme_admin: true},
+            onError,
+            onMemberChange: jest.fn(),
+            updateTeamMemberSchemeRoles: jest.fn().mockResolvedValue({error: {message: 'boom'}}),
+        };
+
+        renderWithContext(<ManageTeamsDropdown {...props}/>);
+
+        await userEvent.click(screen.getByRole('button', {name: /Team Admin/i}));
+        await userEvent.click(screen.getByRole('menuitem', {name: 'Make Team Member'}));
+
+        await waitFor(() => {
+            expect(onError).toHaveBeenCalled();
+        });
+        expect(onError.mock.calls[0][0].props.id).toBe('admin.manage_teams.makeMemberError');
         expect(props.onMemberChange).not.toHaveBeenCalled();
     });
 });
