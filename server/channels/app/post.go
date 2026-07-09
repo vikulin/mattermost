@@ -255,19 +255,11 @@ func (a *App) CreatePost(rctx request.CTX, post *model.Post, channel *model.Chan
 	}
 
 	// Strip mm_blocks_actions from posts that are neither bot-authored nor
-	// created via an integration session. Either signal is sufficient:
-	//   - user.IsBot (DB-verified) covers PluginAPI.CreatePost where the
-	//     plugin's static rctx has no integration markers but the post
-	//     is authored by a bot user.
-	//   - rctx.Session().IsIntegration() (server-derived, unspoofable)
-	//     covers REST callers using bot tokens, PATs, or OAuth apps.
-	//
-	// Webhooks are handled separately at their entry point
-	// (CreateWebhookPost) — webhook payloads are user-controlled even
-	// when bound to a bot user, so the prop is dropped before the post
-	// reaches CreatePost. See TestCreateWebhookPostStripsMmBlocksActions.
+	// created via an integration session. CreateWebhookPost passes
+	// AllowMmBlocksActions instead of relying on from_webhook, which clients
+	// can forge on the public create-post API when hardened mode is off.
 	if post.GetProp(model.PostPropsMmBlocksActions) != nil {
-		if !user.IsBot && !rctx.Session().IsIntegration() {
+		if !user.IsBot && !rctx.Session().IsIntegration() && !flags.AllowMmBlocksActions {
 			post.DelProp(model.PostPropsMmBlocksActions)
 		}
 	}
@@ -529,8 +521,8 @@ func (a *App) attachFileIDsToPost(rctx request.CTX, postID, channelID, userID st
 //
 // If channel is nil, FillInPostProps will look up the channel corresponding to the post.
 func (a *App) FillInPostProps(rctx request.CTX, post *model.Post, channel *model.Channel) *model.AppError {
-	// Use ChannelMentionsAll to scan both message and attachments
-	channelMentions := post.ChannelMentionsAll()
+	// Use ChannelMentionsAll (post.AllStrings) for ~mentions in message, attachments, and interactive payloads.
+	channelMentions := post.ChannelMentionsAllWithOptions(model.AllStringsOptions{OmitInteractiveBlocks: !a.Config().FeatureFlags.MmBlocksEnabled})
 	channelMentionsProp := make(map[string]any)
 
 	if len(channelMentions) > 0 {
@@ -701,13 +693,6 @@ func (a *App) SendEphemeralPost(rctx request.CTX, userID string, post *model.Pos
 		post.SetProps(make(model.StringInterface))
 	}
 
-	// mm_blocks_actions cannot be resolved on click for ephemeral posts (no
-	// DB row, no per-action cookie transport). Drop the prop here so the
-	// client doesn't render a non-functional button.
-	if post.GetProp(model.PostPropsMmBlocksActions) != nil {
-		post.DelProp(model.PostPropsMmBlocksActions)
-	}
-
 	post.GenerateActionIds()
 	message := model.NewWebSocketEvent(model.WebsocketEventEphemeralMessage, "", post.ChannelId, userID, nil, "")
 	post = a.PreparePostForClientWithEmbedsAndImages(rctx, post, &model.PreparePostForClientOpts{IsNewPost: true, IncludePriority: true})
@@ -740,13 +725,6 @@ func (a *App) UpdateEphemeralPost(rctx request.CTX, userID string, post *model.P
 	post.UpdateAt = model.GetMillis()
 	if post.GetProps() == nil {
 		post.SetProps(make(model.StringInterface))
-	}
-
-	// mm_blocks_actions cannot be resolved on click for ephemeral posts (no
-	// DB row, no per-action cookie transport). Drop the prop here so the
-	// client doesn't render a non-functional button.
-	if post.GetProp(model.PostPropsMmBlocksActions) != nil {
-		post.DelProp(model.PostPropsMmBlocksActions)
 	}
 
 	post.GenerateActionIds()
@@ -1614,6 +1592,7 @@ func (a *App) GetPermalinkPost(rctx request.CTX, postID string, userID string) (
 }
 
 func (a *App) GetPostsBeforePost(rctx request.CTX, options model.GetPostsOptions) (*model.PostList, *model.AppError) {
+	options.ExcludeExpiredBurnOnReadPosts = a.isBurnOnReadEnabled()
 	postList, err := a.Srv().Store().Post().GetPostsBefore(rctx, options, a.Config().GetSanitizeOptions())
 	if err != nil {
 		var invErr *store.ErrInvalidInput
@@ -1650,6 +1629,7 @@ func (a *App) GetPostsBeforePost(rctx request.CTX, options model.GetPostsOptions
 }
 
 func (a *App) GetPostsAfterPost(rctx request.CTX, options model.GetPostsOptions) (*model.PostList, *model.AppError) {
+	options.ExcludeExpiredBurnOnReadPosts = a.isBurnOnReadEnabled()
 	postList, err := a.Srv().Store().Post().GetPostsAfter(rctx, options, a.Config().GetSanitizeOptions())
 	if err != nil {
 		var invErr *store.ErrInvalidInput
@@ -1688,6 +1668,7 @@ func (a *App) GetPostsAfterPost(rctx request.CTX, options model.GetPostsOptions)
 func (a *App) GetPostsAroundPost(rctx request.CTX, before bool, options model.GetPostsOptions) (*model.PostList, *model.AppError) {
 	var postList *model.PostList
 	var err error
+	options.ExcludeExpiredBurnOnReadPosts = a.isBurnOnReadEnabled()
 	sanitize := a.Config().GetSanitizeOptions()
 	if before {
 		postList, err = a.Srv().Store().Post().GetPostsBefore(rctx, options, sanitize)
@@ -1749,49 +1730,52 @@ func (a *App) GetPostIdAfterTime(channelID string, time int64, collapsedThreads 
 	return postID, nil
 }
 
-func (a *App) GetPostIdBeforeTime(channelID string, time int64, collapsedThreads bool) (string, *model.AppError) {
-	postID, err := a.Srv().Store().Post().GetPostIdBeforeTime(channelID, time, collapsedThreads)
+func (a *App) GetNextPostIdFromPostList(postList *model.PostList, userID string, collapsedThreads bool) string {
+	if len(postList.Order) == 0 {
+		return ""
+	}
+	first := postList.Posts[postList.Order[0]]
+	return a.getCursorPostId(first.ChannelId, first.CreateAt, userID, collapsedThreads, false)
+}
+
+func (a *App) GetPrevPostIdFromPostList(postList *model.PostList, userID string, collapsedThreads bool) string {
+	if len(postList.Order) == 0 {
+		return ""
+	}
+	last := postList.Posts[postList.Order[len(postList.Order)-1]]
+	return a.getCursorPostId(last.ChannelId, last.CreateAt, userID, collapsedThreads, true)
+}
+
+// getCursorPostId returns the id of the next (before=false) or previous
+// (before=true) post that is visible to the user, used for the NextPostId and
+// PrevPostId pagination cursors. The store query skips burn-on-read posts that
+// have expired for the user, so any number of consecutive expired posts are
+// stepped over in a single round trip and the cursor never references a post
+// that was filtered out of the response.
+func (a *App) getCursorPostId(channelID string, fromTime int64, userID string, collapsedThreads bool, before bool) string {
+	var postId string
+	var err error
+	// Only the visibility-aware query (which carries the burn-on-read receipt
+	// subquery) is used when the feature is enabled; otherwise fall back to the
+	// plain lookups so there is no added query cost for instances not using it.
+	if a.isBurnOnReadEnabled() {
+		postId, err = a.Srv().Store().Post().GetVisiblePostIdAroundTime(channelID, fromTime, before, collapsedThreads, userID)
+	} else if before {
+		postId, err = a.Srv().Store().Post().GetPostIdBeforeTime(channelID, fromTime, collapsedThreads)
+	} else {
+		postId, err = a.Srv().Store().Post().GetPostIdAfterTime(channelID, fromTime, collapsedThreads)
+	}
 	if err != nil {
-		return "", model.NewAppError("GetPostIdBeforeTime", "app.post.get_post_id_around.app_error", nil, "", http.StatusInternalServerError).Wrap(err)
+		mlog.Warn("getCursorPostId: failed to get post id", mlog.Err(err))
+		return ""
 	}
-
-	return postID, nil
-}
-
-func (a *App) GetNextPostIdFromPostList(postList *model.PostList, collapsedThreads bool) string {
-	if len(postList.Order) > 0 {
-		firstPostId := postList.Order[0]
-		firstPost := postList.Posts[firstPostId]
-		nextPostId, err := a.GetPostIdAfterTime(firstPost.ChannelId, firstPost.CreateAt, collapsedThreads)
-		if err != nil {
-			mlog.Warn("GetNextPostIdFromPostList: failed in getting next post", mlog.Err(err))
-		}
-
-		return nextPostId
-	}
-
-	return ""
-}
-
-func (a *App) GetPrevPostIdFromPostList(postList *model.PostList, collapsedThreads bool) string {
-	if len(postList.Order) > 0 {
-		lastPostId := postList.Order[len(postList.Order)-1]
-		lastPost := postList.Posts[lastPostId]
-		previousPostId, err := a.GetPostIdBeforeTime(lastPost.ChannelId, lastPost.CreateAt, collapsedThreads)
-		if err != nil {
-			mlog.Warn("GetPrevPostIdFromPostList: failed in getting previous post", mlog.Err(err))
-		}
-
-		return previousPostId
-	}
-
-	return ""
+	return postId
 }
 
 // AddCursorIdsForPostList adds NextPostId and PrevPostId as cursor to the PostList.
 // The conditional blocks ensure that it sets those cursor IDs immediately as afterPost, beforePost or empty,
 // and only query to database whenever necessary.
-func (a *App) AddCursorIdsForPostList(originalList *model.PostList, afterPost, beforePost string, since int64, page, perPage int, collapsedThreads bool) {
+func (a *App) AddCursorIdsForPostList(originalList *model.PostList, userID string, afterPost, beforePost string, since int64, page, perPage int, collapsedThreads bool) {
 	prevPostIdSet := false
 	prevPostId := ""
 	nextPostIdSet := false
@@ -1821,11 +1805,11 @@ func (a *App) AddCursorIdsForPostList(originalList *model.PostList, afterPost, b
 	}
 
 	if !nextPostIdSet {
-		nextPostId = a.GetNextPostIdFromPostList(originalList, collapsedThreads)
+		nextPostId = a.GetNextPostIdFromPostList(originalList, userID, collapsedThreads)
 	}
 
 	if !prevPostIdSet {
-		prevPostId = a.GetPrevPostIdFromPostList(originalList, collapsedThreads)
+		prevPostId = a.GetPrevPostIdFromPostList(originalList, userID, collapsedThreads)
 	}
 
 	originalList.NextPostId = nextPostId
@@ -2459,7 +2443,7 @@ func (a *App) countThreadMentions(rctx request.CTX, user *model.User, post *mode
 
 	for _, p := range posts {
 		if p.CreateAt >= timestamp {
-			mentions := getExplicitMentions(p, keywords)
+			mentions := getExplicitMentions(p, keywords, a.Config().FeatureFlags.MmBlocksEnabled)
 			if _, ok := mentions.Mentions[user.Id]; ok {
 				count += 1
 			}
@@ -2521,7 +2505,7 @@ func (a *App) countMentionsFromPost(rctx request.CTX, user *model.User, post *mo
 	count := 0
 	countRoot := 0
 	urgentCount := 0
-	if isPostMention(user, post, keywords, thread.Posts, mentionedByThread, checkForCommentMentions) {
+	if isPostMention(user, post, keywords, thread.Posts, mentionedByThread, checkForCommentMentions, a.Config().FeatureFlags.MmBlocksEnabled) {
 		count += 1
 		if post.RootId == "" {
 			countRoot += 1
@@ -2553,7 +2537,7 @@ func (a *App) countMentionsFromPost(rctx request.CTX, user *model.User, post *mo
 
 		mentionPostIds := make([]string, 0)
 		for _, postID := range postList.Order {
-			if isPostMention(user, postList.Posts[postID], keywords, postList.Posts, mentionedByThread, checkForCommentMentions) {
+			if isPostMention(user, postList.Posts[postID], keywords, postList.Posts, mentionedByThread, checkForCommentMentions, a.Config().FeatureFlags.MmBlocksEnabled) {
 				count += 1
 				if postList.Posts[postID].RootId == "" {
 					mentionPostIds = append(mentionPostIds, postID)
@@ -2627,14 +2611,14 @@ func isCommentMention(user *model.User, post *model.Post, otherPosts map[string]
 	return mentioned
 }
 
-func isPostMention(user *model.User, post *model.Post, keywords MentionKeywords, otherPosts map[string]*model.Post, mentionedByThread map[string]bool, checkForCommentMentions bool) bool {
+func isPostMention(user *model.User, post *model.Post, keywords MentionKeywords, otherPosts map[string]*model.Post, mentionedByThread map[string]bool, checkForCommentMentions bool, mmBlocksEnabled bool) bool {
 	// Prevent the user from mentioning themselves
 	if post.UserId == user.Id && post.GetProp(model.PostPropsFromWebhook) != "true" {
 		return false
 	}
 
 	// Check for keyword mentions
-	mentions := getExplicitMentions(post, keywords)
+	mentions := getExplicitMentions(post, keywords, mmBlocksEnabled)
 	if _, ok := mentions.Mentions[user.Id]; ok {
 		return true
 	}
@@ -2904,7 +2888,8 @@ func (a *App) GetPostInfo(rctx request.CTX, postID string, channel *model.Channe
 }
 
 func (a *App) applyPostsWillBeConsumedHook(rctx request.CTX, posts map[string]*model.Post) {
-	if !a.Config().FeatureFlags.ConsumePostHook {
+	env := a.GetPluginsEnvironment()
+	if env == nil || (!env.HasPluginImplementing(plugin.MessagesWillBeConsumedID) && !env.HasPluginImplementing(plugin.MessagesWillBeConsumedWithContextID)) {
 		return
 	}
 
@@ -2932,7 +2917,12 @@ func (a *App) applyPostsWillBeConsumedHook(rctx request.CTX, posts map[string]*m
 }
 
 func (a *App) applyPostWillBeConsumedHook(rctx request.CTX, post **model.Post) {
-	if !a.Config().FeatureFlags.ConsumePostHook || (*post).Type == model.PostTypeBurnOnRead {
+	if (*post).Type == model.PostTypeBurnOnRead {
+		return
+	}
+
+	env := a.GetPluginsEnvironment()
+	if env == nil || (!env.HasPluginImplementing(plugin.MessagesWillBeConsumedID) && !env.HasPluginImplementing(plugin.MessagesWillBeConsumedWithContextID)) {
 		return
 	}
 
