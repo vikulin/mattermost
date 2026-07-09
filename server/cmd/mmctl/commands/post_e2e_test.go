@@ -408,6 +408,7 @@ func (s *MmctlE2ETestSuite) TestPostCreateCmd() {
 		err := postCreateCmdF(s.th.SystemAdminClient, cmd, []string{s.th.BasicTeam.Name + ":" + s.th.BasicChannel.Name})
 		s.Require().NotNil(err)
 		s.Require().Contains(err.Error(), "a post must have a message or at least one file attachment")
+		s.Len(printer.GetErrorLines(), 0)
 	})
 
 	s.Run("Create a post with a missing file should fail", func() {
@@ -422,5 +423,39 @@ func (s *MmctlE2ETestSuite) TestPostCreateCmd() {
 		err := postCreateCmdF(s.th.SystemAdminClient, cmd, []string{s.th.BasicTeam.Name + ":" + s.th.BasicChannel.Name})
 		s.Require().NotNil(err)
 		s.Require().Contains(err.Error(), "could not read file")
+		s.Len(printer.GetErrorLines(), 0)
+	})
+
+	s.Run("Create a post with the successful attachments when one upload fails", func() {
+		printer.Clean()
+
+		msgArg := model.NewRandomString(15)
+		dir := s.T().TempDir()
+
+		goodContent := []byte("good attachment")
+		goodPath := filepath.Join(dir, "good.txt")
+		s.Require().NoError(os.WriteFile(goodPath, goodContent, 0600))
+
+		// An empty file is rejected by the server on upload, so it exercises the
+		// mid-batch upload failure path while the readable file still succeeds.
+		emptyPath := filepath.Join(dir, "empty.txt")
+		s.Require().NoError(os.WriteFile(emptyPath, []byte{}, 0600))
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String("message", msgArg, "")
+		cmd.Flags().StringArray("file", []string{goodPath, emptyPath}, "")
+
+		err := postCreateCmdF(s.th.SystemAdminClient, cmd, []string{s.th.BasicTeam.Name + ":" + s.th.BasicChannel.Name})
+		s.Require().NotNil(err)
+		s.Require().Contains(err.Error(), "could not upload file")
+		s.Len(printer.GetErrorLines(), 0)
+
+		post := findPostByMessage(s.th.BasicChannel.Id, msgArg)
+		s.Require().Len(post.FileIds, 1)
+
+		infos, _, appErr := s.th.App.GetFileInfosForPost(s.th.Context, post, false, false)
+		s.Require().Nil(appErr)
+		s.Require().Len(infos, 1)
+		s.Require().Equal("good.txt", infos[0].Name)
 	})
 }

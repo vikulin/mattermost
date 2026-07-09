@@ -48,7 +48,6 @@ type Client interface {
 	GetPostsForChannel(ctx context.Context, channelID string, page, perPage int, etag string, collapsedThreads bool, includeDeleted bool) (*model.PostList, *model.Response, error)
 	GetPostsSince(ctx context.Context, channelID string, since int64, collapsedThreads bool) (*model.PostList, *model.Response, error)
 	DoAPIPost(ctx context.Context, url string, data string) (*http.Response, error)
-	UploadFile(ctx context.Context, data []byte, channelID string, filename string) (*model.FileUploadResponse, *model.Response, error)
 	GetLdapGroups(ctx context.Context) ([]*model.Group, *model.Response, error)
 	GetGroupsByChannel(ctx context.Context, channelID string, groupOpts model.GroupSearchOpts) ([]*model.GroupWithSchemeAdmin, int, *model.Response, error)
 	GetGroupsByTeam(ctx context.Context, teamID string, groupOpts model.GroupSearchOpts) ([]*model.GroupWithSchemeAdmin, int, *model.Response, error)

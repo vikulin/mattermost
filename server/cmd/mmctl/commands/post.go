@@ -130,11 +130,16 @@ func postCreateCmdF(c client.Client, cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fileIDs, err := uploadPostFiles(c, channelID, files)
+	fileIDs, uploadErr, err := uploadPostFiles(c, channelID, files)
 	if err != nil {
+		// A file could not be opened, so nothing was uploaded and no
+		// attachments were orphaned. Abort before creating the post.
 		return err
 	}
 	if message == "" && len(fileIDs) == 0 {
+		if uploadErr != nil {
+			return uploadErr
+		}
 		return errors.New("a post must have a message or at least one file attachment")
 	}
 
@@ -158,27 +163,77 @@ func postCreateCmdF(c client.Client, cmd *cobra.Command, args []string) error {
 	if _, err := c.DoAPIPost(context.TODO(), url, data); err != nil {
 		return fmt.Errorf("could not create post: %w", err)
 	}
-	return nil
+
+	// Any files that uploaded successfully are attached to the post above, so
+	// a partial batch failure never leaves those uploads orphaned. The error is
+	// returned last so the caller still learns which files could not be sent.
+	return uploadErr
 }
 
-func uploadPostFiles(c client.Client, channelID string, files []string) ([]string, error) {
-	var fileIDs []string
-	for _, file := range files {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			return nil, fmt.Errorf("could not read file '%s': %w", file, err)
-		}
-
-		resp, _, err := c.UploadFile(context.TODO(), data, channelID, filepath.Base(file))
-		if err != nil {
-			return nil, fmt.Errorf("could not upload file '%s': %w", file, err)
-		}
-
-		for _, info := range resp.FileInfos {
-			fileIDs = append(fileIDs, info.Id)
-		}
+// uploadPostFiles streams each local file to the server and returns the IDs of
+// the files that were uploaded successfully. All files are opened up front so
+// an unreadable path (returned as the final error) fails before any upload
+// happens, leaving nothing orphaned. Once uploads start, a failure on one file
+// does not abort the batch: it is collected in uploadErr while the files that
+// did upload are still returned so they can be attached to the post.
+func uploadPostFiles(c client.Client, channelID string, files []string) (fileIDs []string, uploadErr error, err error) {
+	if len(files) == 0 {
+		return nil, nil, nil
 	}
-	return fileIDs, nil
+
+	handles := make([]*os.File, 0, len(files))
+	defer func() {
+		for _, f := range handles {
+			f.Close()
+		}
+	}()
+	for _, file := range files {
+		f, openErr := os.Open(file)
+		if openErr != nil {
+			return nil, nil, fmt.Errorf("could not read file '%s': %w", file, openErr)
+		}
+		handles = append(handles, f)
+	}
+
+	var errs *multierror.Error
+	for i, f := range handles {
+		fileID, uploadFileErr := uploadPostFile(c, channelID, files[i], f)
+		if uploadFileErr != nil {
+			errs = multierror.Append(errs, uploadFileErr)
+			continue
+		}
+		fileIDs = append(fileIDs, fileID)
+	}
+
+	return fileIDs, errs.ErrorOrNil(), nil
+}
+
+func uploadPostFile(c client.Client, channelID, path string, f *os.File) (string, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("could not read file '%s': %w", path, err)
+	}
+
+	us, _, err := c.CreateUpload(context.TODO(), &model.UploadSession{
+		Type:      model.UploadTypeAttachment,
+		ChannelId: channelID,
+		Filename:  filepath.Base(path),
+		FileSize:  info.Size(),
+		UserId:    "me",
+	})
+	if err != nil {
+		return "", fmt.Errorf("could not upload file '%s': %w", path, err)
+	}
+
+	fileInfo, _, err := c.UploadData(context.TODO(), us.Id, f)
+	if err != nil {
+		return "", fmt.Errorf("could not upload file '%s': %w", path, err)
+	}
+	if fileInfo == nil {
+		return "", fmt.Errorf("could not upload file '%s': upload did not complete", path)
+	}
+
+	return fileInfo.Id, nil
 }
 
 func getPostChannelID(c client.Client, arg string) (string, error) {

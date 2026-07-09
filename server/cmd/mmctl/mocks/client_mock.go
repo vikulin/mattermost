@@ -2591,22 +2591,6 @@ func (mr *MockClientMockRecorder) UploadData(arg0, arg1, arg2 interface{}) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UploadData", reflect.TypeOf((*MockClient)(nil).UploadData), arg0, arg1, arg2)
 }
 
-// UploadFile mocks base method.
-func (m *MockClient) UploadFile(arg0 context.Context, arg1 []byte, arg2, arg3 string) (*model.FileUploadResponse, *model.Response, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UploadFile", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(*model.FileUploadResponse)
-	ret1, _ := ret[1].(*model.Response)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// UploadFile indicates an expected call of UploadFile.
-func (mr *MockClientMockRecorder) UploadFile(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UploadFile", reflect.TypeOf((*MockClient)(nil).UploadFile), arg0, arg1, arg2, arg3)
-}
-
 // UploadLicenseFile mocks base method.
 func (m *MockClient) UploadLicenseFile(arg0 context.Context, arg1 []byte) (*model.Response, error) {
 	m.ctrl.T.Helper()

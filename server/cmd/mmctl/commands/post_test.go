@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -366,7 +367,6 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 		s.Require().NoError(os.WriteFile(filePath, fileContent, 0600))
 
 		mockChannel := model.Channel{Id: channelID, Name: channelArg}
-		mockUploadResp := &model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: fileID}}}
 		mockPost := model.Post{Message: msgArg, ChannelId: channelID, FileIds: []string{fileID}}
 		data, err := mockPost.ToJSON()
 		s.Require().NoError(err)
@@ -383,8 +383,14 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "attachment.txt").
-			Return(mockUploadResp, &model.Response{}, nil).
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "attachment.txt", FileSize: int64(len(fileContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
+			Return(&model.FileInfo{Id: fileID}, &model.Response{}, nil).
 			Times(1)
 
 		s.client.
@@ -430,14 +436,26 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), firstContent, channelID, "first.txt").
-			Return(&model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: "file-id-1"}}}, &model.Response{}, nil).
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "first.txt", FileSize: int64(len(firstContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
 			Times(1)
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), secondContent, channelID, "second.png").
-			Return(&model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: "file-id-2"}}}, &model.Response{}, nil).
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
+			Return(&model.FileInfo{Id: "file-id-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "second.png", FileSize: int64(len(secondContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-2"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-2", gomock.Any()).
+			Return(&model.FileInfo{Id: "file-id-2"}, &model.Response{}, nil).
 			Times(1)
 
 		s.client.
@@ -477,8 +495,14 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "attachment.txt").
-			Return(&model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: fileID}}}, &model.Response{}, nil).
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "attachment.txt", FileSize: int64(len(fileContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
+			Return(&model.FileInfo{Id: fileID}, &model.Response{}, nil).
 			Times(1)
 
 		s.client.
@@ -492,49 +516,7 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 		s.Len(printer.GetErrorLines(), 0)
 	})
 
-	s.Run("create a post when a single upload returns multiple file infos", func() {
-		printer.Clean()
-		msgArg := "some text"
-		channelArg := "example-channel"
-		channelID := "channel-id"
-		fileContent := []byte("archive contents")
-		filePath := filepath.Join(s.T().TempDir(), "bundle.zip")
-		s.Require().NoError(os.WriteFile(filePath, fileContent, 0600))
-
-		mockChannel := model.Channel{Id: channelID, Name: channelArg}
-		mockUploadResp := &model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: "file-id-1"}, {Id: "file-id-2"}}}
-		mockPost := model.Post{Message: msgArg, ChannelId: channelID, FileIds: []string{"file-id-1", "file-id-2"}}
-		data, err := mockPost.ToJSON()
-		s.Require().NoError(err)
-
-		cmd := &cobra.Command{}
-		cmd.Flags().String("message", msgArg, "")
-		cmd.Flags().StringArray("file", []string{filePath}, "")
-
-		s.client.
-			EXPECT().
-			GetChannel(context.TODO(), channelArg).
-			Return(&mockChannel, &model.Response{}, nil).
-			Times(1)
-
-		s.client.
-			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "bundle.zip").
-			Return(mockUploadResp, &model.Response{}, nil).
-			Times(1)
-
-		s.client.
-			EXPECT().
-			DoAPIPost(context.TODO(), "/posts?set_online=false", data).
-			Return(nil, nil).
-			Times(1)
-
-		err = postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
-		s.Require().Nil(err)
-		s.Len(printer.GetErrorLines(), 0)
-	})
-
-	s.Run("fails when uploads return no file infos and message is empty", func() {
+	s.Run("fails when an upload does not complete and message is empty", func() {
 		printer.Clean()
 		channelArg := "example-channel"
 		channelID := "channel-id"
@@ -556,57 +538,23 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "attachment.txt").
-			Return(&model.FileUploadResponse{FileInfos: nil}, &model.Response{}, nil).
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "attachment.txt", FileSize: int64(len(fileContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
+			Return(nil, &model.Response{}, nil).
 			Times(1)
 
 		err := postCreateCmdF(s.client, cmd, []string{channelArg})
-		s.Require().EqualError(err, "a post must have a message or at least one file attachment")
+		s.Require().Error(err)
+		s.Require().Contains(err.Error(), "upload did not complete")
 		s.Len(printer.GetErrorLines(), 0)
 	})
 
-	s.Run("create a post when an upload returns no file infos", func() {
-		printer.Clean()
-		msgArg := "some text"
-		channelArg := "example-channel"
-		channelID := "channel-id"
-		fileContent := []byte("file contents")
-		filePath := filepath.Join(s.T().TempDir(), "attachment.txt")
-		s.Require().NoError(os.WriteFile(filePath, fileContent, 0600))
-
-		mockChannel := model.Channel{Id: channelID, Name: channelArg}
-		mockPost := model.Post{Message: msgArg, ChannelId: channelID}
-		data, err := mockPost.ToJSON()
-		s.Require().NoError(err)
-
-		cmd := &cobra.Command{}
-		cmd.Flags().String("message", msgArg, "")
-		cmd.Flags().StringArray("file", []string{filePath}, "")
-
-		s.client.
-			EXPECT().
-			GetChannel(context.TODO(), channelArg).
-			Return(&mockChannel, &model.Response{}, nil).
-			Times(1)
-
-		s.client.
-			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "attachment.txt").
-			Return(&model.FileUploadResponse{FileInfos: nil}, &model.Response{}, nil).
-			Times(1)
-
-		s.client.
-			EXPECT().
-			DoAPIPost(context.TODO(), "/posts?set_online=false", data).
-			Return(nil, nil).
-			Times(1)
-
-		err = postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
-		s.Require().Nil(err)
-		s.Len(printer.GetErrorLines(), 0)
-	})
-
-	s.Run("fails and creates no post when a later file upload errors", func() {
+	s.Run("creates a post with the successful attachments when a later upload errors", func() {
 		printer.Clean()
 		msgArg := "some text"
 		channelArg := "example-channel"
@@ -622,6 +570,9 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 		s.Require().NoError(os.WriteFile(secondPath, secondContent, 0600))
 
 		mockChannel := model.Channel{Id: channelID, Name: channelArg}
+		mockPost := model.Post{Message: msgArg, ChannelId: channelID, FileIds: []string{"file-id-1"}}
+		data, err := mockPost.ToJSON()
+		s.Require().NoError(err)
 
 		cmd := &cobra.Command{}
 		cmd.Flags().String("message", msgArg, "")
@@ -635,17 +586,35 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), firstContent, channelID, "first.txt").
-			Return(&model.FileUploadResponse{FileInfos: []*model.FileInfo{{Id: "file-id-1"}}}, &model.Response{}, nil).
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "first.txt", FileSize: int64(len(firstContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
 			Times(1)
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), secondContent, channelID, "second.txt").
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
+			Return(&model.FileInfo{Id: "file-id-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "second.txt", FileSize: int64(len(secondContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-2"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-2", gomock.Any()).
 			Return(nil, &model.Response{}, errors.New("some-error")).
 			Times(1)
 
-		err := postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
+		s.client.
+			EXPECT().
+			DoAPIPost(context.TODO(), "/posts?set_online=false", data).
+			Return(nil, nil).
+			Times(1)
+
+		err = postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
 		s.Require().Error(err)
 		s.Require().Contains(err.Error(), "could not upload file")
 		s.Len(printer.GetErrorLines(), 0)
@@ -675,7 +644,7 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 		s.Require().Contains(err.Error(), "could not read file")
 	})
 
-	s.Run("fails when the file upload errors", func() {
+	s.Run("creates a post with the message when the only upload errors", func() {
 		printer.Clean()
 		msgArg := "some text"
 		channelArg := "example-channel"
@@ -685,6 +654,9 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 		s.Require().NoError(os.WriteFile(filePath, fileContent, 0600))
 
 		mockChannel := model.Channel{Id: channelID, Name: channelArg}
+		mockPost := model.Post{Message: msgArg, ChannelId: channelID}
+		data, err := mockPost.ToJSON()
+		s.Require().NoError(err)
 
 		cmd := &cobra.Command{}
 		cmd.Flags().String("message", msgArg, "")
@@ -698,13 +670,26 @@ func (s *MmctlUnitTestSuite) TestPostCreateCmdF() {
 
 		s.client.
 			EXPECT().
-			UploadFile(context.TODO(), fileContent, channelID, "attachment.txt").
+			CreateUpload(context.TODO(), &model.UploadSession{Type: model.UploadTypeAttachment, ChannelId: channelID, Filename: "attachment.txt", FileSize: int64(len(fileContent)), UserId: "me"}).
+			Return(&model.UploadSession{Id: "upload-1"}, &model.Response{}, nil).
+			Times(1)
+
+		s.client.
+			EXPECT().
+			UploadData(context.TODO(), "upload-1", gomock.Any()).
 			Return(nil, &model.Response{}, errors.New("some-error")).
 			Times(1)
 
-		err := postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
+		s.client.
+			EXPECT().
+			DoAPIPost(context.TODO(), "/posts?set_online=false", data).
+			Return(nil, nil).
+			Times(1)
+
+		err = postCreateCmdF(s.client, cmd, []string{channelArg, msgArg})
 		s.Require().Error(err)
 		s.Require().Contains(err.Error(), "could not upload file")
+		s.Len(printer.GetErrorLines(), 0)
 	})
 }
 
