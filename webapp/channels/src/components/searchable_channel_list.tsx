@@ -197,7 +197,12 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
 
         const isMember = Boolean(this.isMemberOfChannel(channel.id));
         const isDiscoverable = this.isDiscoverableNonMember(channel);
-        const pendingRequest = isDiscoverable ? this.getPendingRequest(channel.id) : undefined;
+
+        // A non-member with an open request always gets the Withdraw affordance,
+        // even if the channel's discoverable flag was flipped off after the
+        // request was submitted — otherwise the row would fall through to a
+        // Join button that the server rejects for a private channel.
+        const pendingRequest = isMember ? undefined : this.getPendingRequest(channel.id);
 
         const ariaLabel = pendingRequest ?
             this.props.intl.formatMessage(
