@@ -1010,10 +1010,15 @@ export function joinRequests(state: ChannelJoinRequestsState = initialJoinReques
                 myPending[req.channel_id] = req;
             }
         });
+
+        // This is the authoritative full list of the user's requests, so
+        // rebuild myPendingByChannel from it rather than merging — a request
+        // that resolved while the client missed the WebSocket event would
+        // otherwise linger as a stale pending entry.
         return {
             ...state,
             myList: rows,
-            myPendingByChannel: {...state.myPendingByChannel, ...myPending},
+            myPendingByChannel: myPending,
         };
     }
 
@@ -1036,17 +1041,26 @@ export function joinRequests(state: ChannelJoinRequestsState = initialJoinReques
     case ChannelTypes.CHANNEL_JOIN_REQUEST_CREATED: {
         const req: ChannelJoinRequest = action.data;
         const existing = state.byChannel[req.channel_id] ?? [];
+        const alreadyTracked = existing.some((r) => r.id === req.id);
         const dedup = existing.filter((r) => r.id !== req.id);
+
+        // Only bump the pending count for a genuinely new pending row. A
+        // re-delivered CREATED event (same id) must not inflate the count.
+        const counts = (alreadyTracked || req.status !== 'pending') ? state.countsByChannel : {
+            ...state.countsByChannel,
+            [req.channel_id]: (state.countsByChannel[req.channel_id] ?? 0) + 1,
+        };
         return {
             ...state,
             byChannel: {...state.byChannel, [req.channel_id]: [req, ...dedup]},
-            countsByChannel: {...state.countsByChannel, [req.channel_id]: (state.countsByChannel[req.channel_id] ?? 0) + 1},
+            countsByChannel: counts,
         };
     }
 
     case ChannelTypes.CHANNEL_JOIN_REQUEST_UPDATED: {
         const req: ChannelJoinRequest = action.data;
         const existing = state.byChannel[req.channel_id] ?? [];
+        const prev = existing.find((r) => r.id === req.id);
         const replaced = existing.map((r) => (r.id === req.id ? req : r));
         const myPending = {...state.myPendingByChannel};
         if (isTerminal(req.status)) {
@@ -1054,11 +1068,18 @@ export function joinRequests(state: ChannelJoinRequestsState = initialJoinReques
         }
         const myList = state.myList.map((r) => (r.id === req.id ? req : r));
 
-        // Decrement the pending count when a row leaves the pending state. A
-        // CREATED event already bumped the count when the row was first
-        // inserted; without the isTerminal guard we'd double-count.
+        // Adjust the pending count from the actual status transition rather
+        // than the incoming status alone. This keeps the count correct when
+        // the acting admin receives BOTH the optimistic local dispatch and
+        // the server's WebSocket echo for a single approve/deny: the first
+        // dispatch flips the tracked row to terminal, so the echo becomes a
+        // terminal -> terminal no-op. When the row isn't tracked (only the
+        // count is loaded, not the full queue) there is no local echo to
+        // double-count, so fall back to a single decrement on a terminal
+        // update. The floor at 0 guards against any missed CREATED bump.
         let counts = state.countsByChannel;
-        if (isTerminal(req.status)) {
+        const leftPending = isTerminal(req.status) && (prev ? prev.status === 'pending' : true);
+        if (leftPending) {
             const next = (counts[req.channel_id] ?? 0) - 1;
             counts = {...counts, [req.channel_id]: Math.max(0, next)};
         }
