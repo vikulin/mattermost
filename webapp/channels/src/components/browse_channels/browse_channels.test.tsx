@@ -161,7 +161,6 @@ describe('components/BrowseChannels', () => {
             setGlobalItem: jest.fn(),
             getChannelsMemberCount: jest.fn(),
             getMyChannelJoinRequests: jest.fn().mockResolvedValue({data: {requests: [], total_count: 0}}),
-            requestJoinChannel: jest.fn().mockResolvedValue({data: {}}),
             withdrawMyChannelJoinRequest: jest.fn().mockResolvedValue({data: {}}),
         },
     };
@@ -754,6 +753,29 @@ describe('components/BrowseChannels', () => {
             expect(discoverablePropsBase.actions.getMyChannelJoinRequests).toHaveBeenCalledWith({status: 'pending'});
         });
 
+        test('fetches discoverable channels on mount and surfaces them without a search', async () => {
+            const fetchedDiscoverable = TestHelper.getChannelMock({
+                id: 'fetched-discoverable-id',
+                team_id: 'team_1',
+                display_name: 'Fetched Discoverable',
+                name: 'fetched-discoverable',
+                type: 'P',
+                discoverable: true,
+                delete_at: 0,
+            });
+            const searchAllChannels = jest.fn().mockResolvedValue({data: [fetchedDiscoverable]});
+            const props = {...discoverablePropsBase, privateChannels: [], actions: {...discoverablePropsBase.actions, searchAllChannels}};
+
+            renderWithContext(<BrowseChannels {...props}/>);
+
+            expect(searchAllChannels).toHaveBeenCalledWith('', {team_ids: ['team_1'], nonAdminSearch: true});
+
+            await waitFor(() => {
+                expect(screen.getByTestId('ChannelRow-fetched-discoverable')).toBeInTheDocument();
+            });
+            expect(screen.getByTestId('ChannelRow-fetched-discoverable')).toHaveTextContent(/Request to join/);
+        });
+
         test('does NOT fetch pending requests when the FF is off', async () => {
             const offProps = {...discoverablePropsBase, discoverableFeatureEnabled: false};
             renderWithContext(<BrowseChannels {...offProps}/>);
@@ -830,7 +852,7 @@ describe('components/BrowseChannels', () => {
             await user.click(requestButton);
 
             // The row no longer fires the request action directly. It opens
-            // the two-step modal; the modal is what calls requestJoinChannel
+            // the confirmation modal; the modal is what dispatches the request
             // once the user confirms.
             expect(discoverablePropsBase.actions.openModal).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -841,7 +863,6 @@ describe('components/BrowseChannels', () => {
                     }),
                 }),
             );
-            expect(discoverablePropsBase.actions.requestJoinChannel).not.toHaveBeenCalled();
         });
 
         test('Discoverable + MyPendingRequests filter menu items appear when the FF is on', async () => {
