@@ -1261,10 +1261,6 @@ func (a *App) ListExports() ([]string, *model.AppError) {
 }
 
 func (a *App) GeneratePresignURLForExport(name string) (*model.PresignURLResponse, *model.AppError) {
-	if !a.Config().FeatureFlags.EnableExportDirectDownload {
-		return nil, model.NewAppError("GeneratePresignURLForExport", "app.eport.generate_presigned_url.featureflag.app_error", nil, "", http.StatusInternalServerError)
-	}
-
 	if !*a.Config().FileSettings.DedicatedExportStore {
 		return nil, model.NewAppError("GeneratePresignURLForExport", "app.eport.generate_presigned_url.config.app_error", nil, "", http.StatusInternalServerError)
 	}

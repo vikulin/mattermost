@@ -6593,10 +6593,6 @@
     "translation": "Your export store driver does not support presign url generation."
   },
   {
-    "id": "app.eport.generate_presigned_url.featureflag.app_error",
-    "translation": "This feature is restricted by a feature flag."
-  },
-  {
     "id": "app.eport.generate_presigned_url.fileexist.app_error",
     "translation": "Unable to check if the file exists."
   },

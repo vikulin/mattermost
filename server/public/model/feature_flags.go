@@ -32,8 +32,6 @@ type FeatureFlags struct {
 
 	OnboardingTourTips bool
 
-	EnableExportDirectDownload bool
-
 	MoveThreadsEnabled bool
 
 	CloudDedicatedExportUI bool
@@ -145,7 +143,6 @@ func (f *FeatureFlags) SetDefaults() {
 	f.NormalizeLdapDNs = false
 	f.WysiwygEditor = false
 	f.OnboardingTourTips = true
-	f.EnableExportDirectDownload = false
 	f.MoveThreadsEnabled = false
 	f.CloudDedicatedExportUI = false
 	f.NotificationMonitoring = true
