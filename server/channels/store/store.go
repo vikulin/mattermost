@@ -1212,6 +1212,12 @@ type PropertyValueStore interface {
 type AccessControlPolicyStore interface {
 	Save(rctx request.CTX, policy *model.AccessControlPolicy) (*model.AccessControlPolicy, error)
 	Delete(rctx request.CTX, id string) error
+
+	// DeleteIfType deletes the policy only when its stored Type equals
+	// expectedType, atomically (single guarded DELETE). Returns ErrNotFound
+	// for both an absent row and a type mismatch — indistinguishable by
+	// design so type-scoped callers cannot probe foreign policies.
+	DeleteIfType(rctx request.CTX, id string, expectedType string) error
 	SetActiveStatus(rctx request.CTX, id string, active bool) (*model.AccessControlPolicy, error)
 	SetActiveStatusMultiple(rctx request.CTX, list []model.AccessControlPolicyActiveUpdate) ([]*model.AccessControlPolicy, error)
 	Get(rctx request.CTX, id string) (*model.AccessControlPolicy, error)
