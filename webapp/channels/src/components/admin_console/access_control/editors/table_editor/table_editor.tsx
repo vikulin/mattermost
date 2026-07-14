@@ -4,7 +4,7 @@
 import React, {useState, useEffect, useCallback, useMemo} from 'react';
 import {FormattedMessage, useIntl} from 'react-intl';
 
-import type {AccessControlVisualAST} from '@mattermost/types/access_control';
+import type {AccessControlTestResult, AccessControlVisualAST} from '@mattermost/types/access_control';
 import type {UserPropertyField} from '@mattermost/types/properties_user';
 
 import {searchUsersForExpression} from 'mattermost-redux/actions/access_control';
@@ -104,7 +104,7 @@ export function isRowValueValid(row: TableRow): boolean {
     return true;
 }
 
-interface TableEditorProps {
+export interface TableEditorProps {
     value: string;
     onChange: (value: string) => void;
     onValidate?: (isValid: boolean) => void;
@@ -116,6 +116,12 @@ interface TableEditorProps {
     teamId?: string;
     actions: {
         getVisualAST: (expr: string) => Promise<ActionResult>;
+
+        /** Overrides the searchUsersForExpression redux thunk backing the
+         *  built-in TestResultsModal. Used by plugins (via
+         *  window.Components.AccessControlTableEditor) to route the request
+         *  through their own proxy. Omission = current behavior. */
+        searchUsers?: (expression: string, term: string, after: string, limit: number) => Promise<ActionResult<AccessControlTestResult>>;
     };
 
     // Props for user self-exclusion detection
@@ -676,6 +682,14 @@ function TableEditor({
                     actions={{
                         openModal: () => {},
                         searchUsers: (term: string, after: string, limit: number) => {
+                            if (actions.searchUsers) {
+                                // Pass-through thunk: resolves the injected promise
+                                // without touching the store, so TestResultsModal's
+                                // dispatch(...) needs no changes.
+                                const search = actions.searchUsers;
+                                return () => search(value, term, after, limit);
+                            }
+
                             // Return the action for the modal to dispatch
                             return searchUsersForExpression(value, term, after, limit, channelId, teamId);
                         },

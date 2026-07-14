@@ -5,11 +5,12 @@ import * as monaco from 'monaco-editor';
 import React, {useCallback, useEffect, useRef, useState, useMemo} from 'react';
 import {FormattedMessage, useIntl} from 'react-intl';
 
-import type {AccessControlTestResult} from '@mattermost/types/access_control';
+import type {AccessControlTestResult, CELExpressionError} from '@mattermost/types/access_control';
 
 import {searchUsersForExpression} from 'mattermost-redux/actions/access_control';
 import {debounce} from 'mattermost-redux/actions/helpers';
 import {Client4} from 'mattermost-redux/client';
+import type {ActionResult} from 'mattermost-redux/types/actions';
 
 import {MonacoLanguageProvider} from './language_provider';
 
@@ -68,7 +69,23 @@ const MONACO_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions 
     contextmenu: false,
 };
 
-interface CELEditorProps {
+/**
+ * Injectable overrides for the editor's network touchpoints. Used by plugins
+ * (via window.Components.AccessControlCELEditor) to route requests through
+ * their own proxies instead of Client4/redux. Omission = current behavior.
+ */
+export interface CELEditorActions {
+
+    /** Overrides Client4.checkAccessControlExpression. Receives only the
+     *  expression; resource scoping is the supplier's concern. */
+    checkExpression?: (expression: string) => Promise<CELExpressionError[]>;
+
+    /** Overrides the searchUsersForExpression redux thunk backing the
+     *  built-in TestResultsModal. */
+    searchUsers?: (expression: string, term: string, after: string, limit: number) => Promise<ActionResult<AccessControlTestResult>>;
+}
+
+export interface CELEditorProps {
     value: string;
     onChange: (value: string) => void;
     onValidate?: (isValid: boolean) => void;
@@ -98,6 +115,7 @@ interface CELEditorProps {
      *  default "Test access rule" copy. */
     testButtonLabel?: React.ReactNode;
     hasMaskedRows?: boolean;
+    actions?: CELEditorActions;
 }
 
 // TODO: this is just a sample schema for the editor, we need to get the actual schema from the server
@@ -115,6 +133,7 @@ function CELEditor({
     onTestClick,
     testButtonLabel,
     hasMaskedRows = false,
+    actions,
 }: CELEditorProps): JSX.Element {
     const intl = useIntl();
     const [editorState, setEditorState] = useState({
@@ -146,6 +165,8 @@ function CELEditor({
     if (nativeNames.includes('createat')) {
         schemas['user.createat'] = ['youngerThanDays'];
     }
+
+    const injectedCheckExpression = actions?.checkExpression;
 
     const editorRef = useRef(null);
     const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -185,7 +206,12 @@ function CELEditor({
         setEditorState((prev) => ({...prev, isValidating: true, isWaitingForValidation: false}));
 
         try {
-            const errors = await Client4.checkAccessControlExpression(expression, channelId, teamId);
+            let errors: CELExpressionError[];
+            if (injectedCheckExpression) {
+                errors = await injectedCheckExpression(expression);
+            } else {
+                errors = await Client4.checkAccessControlExpression(expression, channelId, teamId);
+            }
             const isValid = errors.length === 0;
             setEditorState((prev) => ({
                 ...prev,
@@ -205,7 +231,7 @@ function CELEditor({
             }));
             onValidate?.(false);
         }
-    }, [onValidate]);
+    }, [onValidate, injectedCheckExpression, channelId, teamId]);
 
     // Update the validateSyntax ref whenever it changes
     useEffect(() => {
@@ -462,6 +488,13 @@ function CELEditor({
                     actions={{
                         openModal: () => {},
                         searchUsers: (term: string, after: string, limit: number) => {
+                            if (actions?.searchUsers) {
+                                // Pass-through thunk: resolves the injected promise
+                                // without touching the store, so TestResultsModal's
+                                // dispatch(...) needs no changes.
+                                const search = actions.searchUsers;
+                                return () => search(editorState.expression, term, after, limit);
+                            }
                             return searchUsersForExpression(editorState.expression, term, after, limit, channelId, teamId);
                         },
                     }}
