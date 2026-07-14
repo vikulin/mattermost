@@ -39,6 +39,12 @@ const lazyExports: [
 ] = [AccessControlTableEditor, AccessControlCELEditor];
 
 describe('plugins/access_control_editors', () => {
+    test('exports are React.lazy components', () => {
+        for (const exported of lazyExports) {
+            expect((exported as unknown as {$$typeof: symbol}).$$typeof).toBe(Symbol.for('react.lazy'));
+        }
+    });
+
     test('AccessControlTableEditor lazily resolves and renders', async () => {
         renderWithContext(
             <Suspense fallback='loading'>
@@ -56,7 +62,6 @@ describe('plugins/access_control_editors', () => {
 
         // Generous timeout: first render transpiles/resolves the whole editor chunk.
         expect(await screen.findByText('Select a user attribute and values to create a rule', {}, {timeout: 10000})).toBeInTheDocument();
-        expect(lazyExports[0]).toBe(AccessControlTableEditor);
     });
 
     test('AccessControlCELEditor lazily resolves and renders', async () => {
@@ -74,6 +79,5 @@ describe('plugins/access_control_editors', () => {
         // The placeholder div carries the editor's aria-label; the same text
         // also appears in the help text, so query by label instead.
         expect(await screen.findByLabelText('CEL Expression Editor', {}, {timeout: 10000})).toHaveTextContent('user.attributes.<attribute> == <value>');
-        expect(lazyExports[1]).toBe(AccessControlCELEditor);
     });
 });

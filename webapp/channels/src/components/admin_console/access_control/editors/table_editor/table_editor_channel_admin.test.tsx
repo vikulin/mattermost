@@ -7,7 +7,7 @@ import type {UserPropertyField} from '@mattermost/types/properties_user';
 
 import {searchUsersForExpression} from 'mattermost-redux/actions/access_control';
 
-import {renderWithContext, screen, waitFor} from 'tests/react_testing_utils';
+import {renderWithContext, screen, userEvent, waitFor} from 'tests/react_testing_utils';
 
 import TableEditor from './table_editor';
 
@@ -92,8 +92,7 @@ describe('TableEditor - Multiselect Attribute Operator Restriction', () => {
             expect(screen.getByRole('button', {name: /add attribute/i})).toBeInTheDocument();
         });
 
-        const addButton = screen.getByRole('button', {name: /add attribute/i});
-        addButton.click();
+        await userEvent.click(screen.getByRole('button', {name: /add attribute/i}));
 
         await waitFor(() => {
             expect(screen.getByTestId('operatorSelectorMenuButton')).toBeInTheDocument();
@@ -470,7 +469,7 @@ describe('TableEditor - injected searchUsers', () => {
             expect(screen.getByRole('button', {name: /test access rule/i})).not.toBeDisabled();
         });
 
-        screen.getByRole('button', {name: /test access rule/i}).click();
+        await userEvent.click(screen.getByRole('button', {name: /test access rule/i}));
 
         await waitFor(() => {
             expect(mockSearch).toHaveBeenCalledWith(expression, '', '', 50);
@@ -493,7 +492,7 @@ describe('TableEditor - injected searchUsers', () => {
             expect(screen.getByRole('button', {name: /test access rule/i})).not.toBeDisabled();
         });
 
-        screen.getByRole('button', {name: /test access rule/i}).click();
+        await userEvent.click(screen.getByRole('button', {name: /test access rule/i}));
 
         await waitFor(() => {
             expect(searchUsersForExpression).toHaveBeenCalledWith(expression, '', '', 50, 'channel1', 'team1');

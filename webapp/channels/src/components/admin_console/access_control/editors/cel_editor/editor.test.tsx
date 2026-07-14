@@ -6,7 +6,7 @@ import React from 'react';
 import {searchUsersForExpression} from 'mattermost-redux/actions/access_control';
 import {Client4} from 'mattermost-redux/client';
 
-import {renderWithContext, screen, waitFor} from 'tests/react_testing_utils';
+import {renderWithContext, screen, userEvent, waitFor} from 'tests/react_testing_utils';
 
 import CELEditor from './editor';
 
@@ -127,11 +127,33 @@ describe('CELEditor', () => {
             expect(screen.getByRole('button', {name: /test access rule/i})).not.toBeDisabled();
         });
 
-        screen.getByRole('button', {name: /test access rule/i}).click();
+        await userEvent.click(screen.getByRole('button', {name: /test access rule/i}));
 
         await waitFor(() => {
             expect(mockSearch).toHaveBeenCalledWith(expression, '', '', 50);
         });
         expect(searchUsersForExpression).not.toHaveBeenCalled();
+    });
+
+    test('should fall back to the redux thunk for the test modal when searchUsers is not injected', async () => {
+        renderWithContext(
+            <CELEditor
+                {...baseProps}
+                channelId='channel1'
+                teamId='team1'
+            />,
+            {},
+        );
+
+        await waitFor(() => {
+            expect(screen.getByRole('button', {name: /test access rule/i})).not.toBeDisabled();
+        });
+
+        await userEvent.click(screen.getByRole('button', {name: /test access rule/i}));
+
+        await waitFor(() => {
+            expect(searchUsersForExpression).toHaveBeenCalledWith(expression, '', '', 50, 'channel1', 'team1');
+        });
+        expect(screen.getByText('Access Rule Test Results')).toBeInTheDocument();
     });
 });
