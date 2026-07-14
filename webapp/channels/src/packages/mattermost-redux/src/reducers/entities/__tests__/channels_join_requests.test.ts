@@ -163,6 +163,15 @@ describe('joinRequests reducer', () => {
             data: approved,
         });
         expect(next.countsByChannel.channel1).toBe(2);
+
+        // The untracked row is now persisted, so a re-delivered terminal event
+        // finds it as terminal and does not decrement the count again.
+        expect(next.byChannel.channel1).toHaveLength(1);
+        const afterDuplicate = joinRequests(next, {
+            type: ChannelTypes.CHANNEL_JOIN_REQUEST_UPDATED,
+            data: approved,
+        });
+        expect(afterDuplicate.countsByChannel.channel1).toBe(2);
     });
 
     test('CHANNEL_JOIN_REQUEST_REMOVED drops myPending entry', () => {

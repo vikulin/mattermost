@@ -1061,7 +1061,13 @@ export function joinRequests(state: ChannelJoinRequestsState = initialJoinReques
         const req: ChannelJoinRequest = action.data;
         const existing = state.byChannel[req.channel_id] ?? [];
         const prev = existing.find((r) => r.id === req.id);
-        const replaced = existing.map((r) => (r.id === req.id ? req : r));
+
+        // Persist the row even when it wasn't tracked yet, so a re-delivered
+        // terminal event finds it and becomes a terminal -> terminal no-op
+        // rather than decrementing the count a second time.
+        const replaced = prev ?
+            existing.map((r) => (r.id === req.id ? req : r)) :
+            [req, ...existing];
         const myPending = {...state.myPendingByChannel};
         if (isTerminal(req.status)) {
             delete myPending[req.channel_id];
