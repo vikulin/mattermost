@@ -516,7 +516,7 @@ const NewChannelModal = () => {
                                 </label>
                                 <label
                                     className='Input_subheading'
-                                    aria-label={discoverableTitle}
+                                    aria-label={discoverableDescription}
                                 >
                                     {discoverableDescription}
                                 </label>
