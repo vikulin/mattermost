@@ -28,26 +28,16 @@
 }
 
 .value-selector-menu-button {
-    // Keep chips on a single line so the table row height stays constant
-    // regardless of how many values are added. Overflowing chips scroll
-    // horizontally within the cell instead of wrapping onto new lines.
+    // Chips wrap onto new lines within the fixed-width Values cell so the
+    // table never expands horizontally past the modal. The row grows
+    // vertically to fit however many values are added.
     &__multi-values-container {
         display: flex;
+        overflow: hidden;
         min-width: 0;
         flex-grow: 1;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 2px;
-        overflow-x: auto;
-        overflow-y: hidden;
-
-        &::-webkit-scrollbar {
-            height: 4px;
-        }
-
-        &::-webkit-scrollbar-thumb {
-            border-radius: 2px;
-            background: rgba(var(--center-channel-color-rgb), 0.24);
-        }
     }
 
     &__inner-wrapper {
