@@ -132,7 +132,10 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
 
     handleRequestToJoin = (channel: Channel, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!this.props.handleRequestToJoin) {
+
+        // Ignore re-entry (row click while a request is already in flight) so
+        // clicking the row doesn't bypass the disabled button.
+        if (!this.props.handleRequestToJoin || this.state.requestingChannel) {
             return;
         }
         this.setState({requestingChannel: channel.id});
@@ -143,7 +146,7 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
 
     handleWithdrawRequest = (channel: Channel, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!this.props.handleWithdrawRequest) {
+        if (!this.props.handleWithdrawRequest || this.state.withdrawingChannel) {
             return;
         }
         this.setState({withdrawingChannel: channel.id});
@@ -290,7 +293,7 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
                 emphasis='primary'
                 size='sm'
                 className='primaryButton'
-                disabled={this.state.requestingChannel === channel.id}
+                disabled={Boolean(this.state.requestingChannel)}
                 tabIndex={-1}
                 aria-label={this.props.intl.formatMessage({id: 'more_channels.requestToJoin', defaultMessage: 'Request to join'})}
             >
@@ -312,8 +315,7 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
                 onClick={(e) => this.handleWithdrawRequest(channel, e)}
                 emphasis='tertiary'
                 size='sm'
-                disabled={this.state.withdrawingChannel === channel.id}
-                tabIndex={-1}
+                disabled={Boolean(this.state.withdrawingChannel)}
                 aria-label={this.props.intl.formatMessage({id: 'more_channels.withdrawRequest', defaultMessage: 'Withdraw request'})}
             >
                 <LoadingWrapper

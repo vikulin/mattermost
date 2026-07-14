@@ -832,7 +832,12 @@ describe('components/BrowseChannels', () => {
 
             const row = screen.getByTestId('ChannelRow-discoverable-ops');
             expect(row.querySelector('.more-modal__requested-pill')).not.toBeInTheDocument();
-            expect(row.querySelector('#withdrawRequestButton')).toBeInTheDocument();
+            const withdrawButton = row.querySelector('#withdrawRequestButton');
+            expect(withdrawButton).toBeInTheDocument();
+
+            // Pending rows do nothing on Enter, so the Withdraw button must stay
+            // keyboard-focusable (no tabindex=-1) to remain operable.
+            expect(withdrawButton).not.toHaveAttribute('tabindex', '-1');
             expect(row).toHaveTextContent(/Withdraw/);
             expect(row).not.toHaveTextContent(/Requested/);
             expect(row.querySelector('#requestToJoinChannelButton')).not.toBeInTheDocument();
