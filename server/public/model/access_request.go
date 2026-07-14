@@ -209,11 +209,35 @@ type AccessRequest struct {
 	Context  map[string]any `json:"context,omitempty"`
 }
 
+// AccessDecisionOutcome is the explicit outcome of a policy evaluation,
+// distinguishing "no policy governs this request" (no_policy) and "the
+// decision could not be computed" (unavailable) from a plain allow/deny.
+type AccessDecisionOutcome string
+
+const (
+	AccessDecisionOutcomeAllow       AccessDecisionOutcome = "allow"
+	AccessDecisionOutcomeDeny        AccessDecisionOutcome = "deny"
+	AccessDecisionOutcomeNoPolicy    AccessDecisionOutcome = "no_policy"
+	AccessDecisionOutcomeUnavailable AccessDecisionOutcome = "unavailable"
+)
+
 // The PDP evaluates the request and returns an AccessDecision.
 // The Decision field is a boolean indicating whether the request is allowed or not.
 type AccessDecision struct {
-	Decision bool           `json:"decision"`
-	Context  map[string]any `json:"context,omitempty"`
+	Decision bool `json:"decision"`
+	// Outcome is the explicit evaluation outcome. Decision stays the
+	// collapsed boolean and remains authoritative for existing callers;
+	// Outcome disambiguates allow vs no_policy for consumers that care.
+	// unavailable is never produced by the evaluator itself — it is
+	// produced by the open-core app layer when the service cannot answer.
+	Outcome AccessDecisionOutcome `json:"outcome,omitempty"`
+	Context map[string]any        `json:"context,omitempty"`
+}
+
+// PluginAccessControlDecision is what the plugin PDP API
+// (EvaluateAccessControl) returns.
+type PluginAccessControlDecision struct {
+	Outcome AccessDecisionOutcome `json:"outcome"`
 }
 
 type QueryExpressionParams struct {

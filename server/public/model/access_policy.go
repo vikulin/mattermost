@@ -20,14 +20,25 @@ const (
 
 	MaxPolicyNameLength = 128
 
+	// Plugin-registered resource-policy types (namespaced by owning plugin ID).
+	AccessControlPolicyTypePluginAgent   = "mattermost-ai.agent"
+	AccessControlPolicyTypePluginService = "mattermost-ai.service"
+	AccessControlPolicyTypePluginMCP     = "mattermost-ai.mcp"
+
 	AccessControlPolicyVersionV0_1 = "v0.1"
 	AccessControlPolicyVersionV0_2 = "v0.2"
 	AccessControlPolicyVersionV0_3 = "v0.3"
 	AccessControlPolicyVersionV0_4 = "v0.4"
+	AccessControlPolicyVersionV0_5 = "v0.5"
 
 	AccessControlPolicyActionMembership             = "membership"
 	AccessControlPolicyActionUploadFileAttachment   = "upload_file_attachment"
 	AccessControlPolicyActionDownloadFileAttachment = "download_file_attachment"
+
+	// AccessControlPolicyActionUse is the single action for all plugin
+	// types in this milestone. Deliberately NOT added to allowedActionsV0_3 /
+	// allowedPermissionActionsV0_4 — validated only through the per-type registry.
+	AccessControlPolicyActionUse = "use"
 
 	AccessControlPolicyScopeTeam = "team"
 )
@@ -58,6 +69,46 @@ var allowedPermissionActionsV0_4 = map[string]bool{
 // permission action governed by a v0.4 channel rule.
 func IsPermissionAction(action string) bool {
 	return allowedPermissionActionsV0_4[action]
+}
+
+// PluginAccessControlResourceType describes a plugin-owned resource-policy type.
+type PluginAccessControlResourceType struct {
+	Type           string   // e.g. "mattermost-ai.agent"
+	OwnerPluginID  string   // plugin that may manage/evaluate this type, e.g. "mattermost-ai"
+	AllowedActions []string // per-type action allow-list, e.g. ["use"]
+}
+
+// pluginAccessControlResourceTypes is the static registry of plugin-owned
+// resource-policy types. Adding a future type is a one-line entry.
+var pluginAccessControlResourceTypes = map[string]PluginAccessControlResourceType{
+	AccessControlPolicyTypePluginAgent:   {AccessControlPolicyTypePluginAgent, "mattermost-ai", []string{AccessControlPolicyActionUse}},
+	AccessControlPolicyTypePluginService: {AccessControlPolicyTypePluginService, "mattermost-ai", []string{AccessControlPolicyActionUse}},
+	AccessControlPolicyTypePluginMCP:     {AccessControlPolicyTypePluginMCP, "mattermost-ai", []string{AccessControlPolicyActionUse}},
+}
+
+// PluginAccessControlResourceTypeFor returns the registry entry for the given
+// policy type, if registered.
+func PluginAccessControlResourceTypeFor(t string) (PluginAccessControlResourceType, bool) {
+	rt, ok := pluginAccessControlResourceTypes[t]
+	return rt, ok
+}
+
+// IsPluginAccessControlPolicyType reports whether t is a plugin-registered
+// resource-policy type.
+func IsPluginAccessControlPolicyType(t string) bool {
+	_, ok := pluginAccessControlResourceTypes[t]
+	return ok
+}
+
+// IsActionAllowed reports whether action is in this type's allow-list.
+func (rt PluginAccessControlResourceType) IsActionAllowed(action string) bool {
+	return slices.Contains(rt.AllowedActions, action)
+}
+
+// IsOwnedBy reports whether pluginID owns this resource type. Case-insensitive
+// so callers that lowercase plugin IDs (a plugin API convention) still match.
+func (rt PluginAccessControlResourceType) IsOwnedBy(pluginID string) bool {
+	return strings.EqualFold(rt.OwnerPluginID, pluginID)
 }
 
 // HasPermissionRuleAction reports whether ANY rule on this policy
@@ -208,6 +259,8 @@ func (p *AccessControlPolicy) IsValid() *AppError {
 		return p.accessPolicyVersionV0_3()
 	case AccessControlPolicyVersionV0_4:
 		return p.accessPolicyVersionV0_4()
+	case AccessControlPolicyVersionV0_5:
+		return p.accessPolicyVersionV0_5()
 	default:
 		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.version.app_error", nil, "", 400)
 	}
@@ -509,6 +562,72 @@ func (p *AccessControlPolicy) accessPolicyVersionV0_4() *AppError {
 		// Membership rules must not carry a role.
 		if hasMembership && rule.Role != "" {
 			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rule_role.app_error", nil, "membership rules must not have a role", 400)
+		}
+	}
+
+	return nil
+}
+
+// accessPolicyVersionV0_5 validates a v0.5 policy. v0.5 accepts only
+// plugin-registered resource types (see pluginAccessControlResourceTypes):
+// system scope only, no imports, no roles, and per-rule actions restricted to
+// the type's registry allow-list.
+func (p *AccessControlPolicy) accessPolicyVersionV0_5() *AppError {
+	rt, ok := PluginAccessControlResourceTypeFor(p.Type)
+	if !ok {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.plugin_type.app_error", nil, "", 400)
+	}
+
+	if !IsValidId(p.ID) {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.id.app_error", nil, "", 400)
+	}
+
+	// Name is required — no backing entity supplies one for plugin types.
+	if p.Name == "" || len(p.Name) > MaxPolicyNameLength {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.name.app_error", nil, "", 400)
+	}
+
+	if p.Revision < 0 {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.revision.app_error", nil, "", 400)
+	}
+
+	if !semver.IsValid(p.Version) {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.version.app_error", nil, "", 400)
+	}
+
+	if len(p.Rules) == 0 {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rules.app_error", nil, "", 400)
+	}
+
+	if len(p.Imports) > 0 {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.imports.app_error", nil, "", 400)
+	}
+
+	if len(p.Roles) > 0 {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.roles.app_error", nil, "", 400)
+	}
+
+	// System scope only: validateScope allows team scopes, so reject any
+	// non-empty scope here.
+	if p.Scope != "" || p.ScopeID != "" {
+		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.scope.app_error", nil, "", 400)
+	}
+
+	for _, rule := range p.Rules {
+		if len(rule.Actions) == 0 {
+			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.actions.app_error", nil, "actions must not be empty", 400)
+		}
+		for _, action := range rule.Actions {
+			if !rt.IsActionAllowed(action) {
+				return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.actions.app_error", nil, fmt.Sprintf("unrecognized action: %s", action), 400)
+			}
+		}
+		if rule.Role != "" {
+			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rule_role.app_error", nil, "plugin policy rules must not have a role", 400)
+		}
+		// Rule names are optional but bounded when present.
+		if len(rule.Name) > MaxPolicyNameLength {
+			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rule_name.app_error", nil, "rule name exceeds the policy max length", 400)
 		}
 	}
 

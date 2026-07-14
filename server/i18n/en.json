@@ -11039,6 +11039,10 @@
     "translation": "Invalid name for the policy."
   },
   {
+    "id": "model.access_policy.is_valid.plugin_type.app_error",
+    "translation": "Invalid access control policy: type is not a registered plugin resource type."
+  },
+  {
     "id": "model.access_policy.is_valid.revision.app_error",
     "translation": "Invalid policy revision."
   },

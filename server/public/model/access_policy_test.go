@@ -1300,3 +1300,183 @@ func TestInheritTeamType(t *testing.T) {
 		require.Equal(t, 400, err.StatusCode)
 	})
 }
+
+func TestAccessPolicyVersionV0_5(t *testing.T) {
+	validPolicy := func(mutate func(p *AccessControlPolicy)) *AccessControlPolicy {
+		p := &AccessControlPolicy{
+			ID:       NewId(),
+			Type:     AccessControlPolicyTypePluginAgent,
+			Name:     "Agent policy",
+			Revision: 0,
+			Version:  AccessControlPolicyVersionV0_5,
+			Rules: []AccessControlPolicyRule{{
+				Actions:    []string{AccessControlPolicyActionUse},
+				Expression: "user.attributes.dept == \"eng\"",
+			}},
+		}
+		if mutate != nil {
+			mutate(p)
+		}
+		return p
+	}
+
+	for _, pluginType := range []string{
+		AccessControlPolicyTypePluginAgent,
+		AccessControlPolicyTypePluginService,
+		AccessControlPolicyTypePluginMCP,
+	} {
+		t.Run("valid policy for "+pluginType, func(t *testing.T) {
+			p := validPolicy(func(p *AccessControlPolicy) { p.Type = pluginType })
+			require.Nil(t, p.IsValid())
+		})
+	}
+
+	t.Run("optional rule name accepted", func(t *testing.T) {
+		p := validPolicy(func(p *AccessControlPolicy) { p.Rules[0].Name = "Named rule" })
+		require.Nil(t, p.IsValid())
+	})
+
+	tests := []struct {
+		name       string
+		mutate     func(p *AccessControlPolicy)
+		expectedID string
+	}{
+		{"legacy channel type rejected", func(p *AccessControlPolicy) { p.Type = AccessControlPolicyTypeChannel }, "model.access_policy.is_valid.plugin_type.app_error"},
+		{"legacy parent type rejected", func(p *AccessControlPolicy) { p.Type = AccessControlPolicyTypeParent }, "model.access_policy.is_valid.plugin_type.app_error"},
+		{"legacy permission type rejected", func(p *AccessControlPolicy) { p.Type = AccessControlPolicyTypePermission }, "model.access_policy.is_valid.plugin_type.app_error"},
+		{"legacy team type rejected", func(p *AccessControlPolicy) { p.Type = AccessControlPolicyTypeTeam }, "model.access_policy.is_valid.plugin_type.app_error"},
+		{"unregistered type rejected", func(p *AccessControlPolicy) { p.Type = "some-plugin.widget" }, "model.access_policy.is_valid.plugin_type.app_error"},
+		{"invalid id", func(p *AccessControlPolicy) { p.ID = "short" }, "model.access_policy.is_valid.id.app_error"},
+		{"empty name", func(p *AccessControlPolicy) { p.Name = "" }, "model.access_policy.is_valid.name.app_error"},
+		{"oversized name", func(p *AccessControlPolicy) { p.Name = strings.Repeat("a", MaxPolicyNameLength+1) }, "model.access_policy.is_valid.name.app_error"},
+		{"negative revision", func(p *AccessControlPolicy) { p.Revision = -1 }, "model.access_policy.is_valid.revision.app_error"},
+		{"zero rules", func(p *AccessControlPolicy) { p.Rules = nil }, "model.access_policy.is_valid.rules.app_error"},
+		{"imports present", func(p *AccessControlPolicy) { p.Imports = []string{NewId()} }, "model.access_policy.is_valid.imports.app_error"},
+		{"roles present", func(p *AccessControlPolicy) { p.Roles = []string{SystemUserRoleId} }, "model.access_policy.is_valid.roles.app_error"},
+		{"empty actions", func(p *AccessControlPolicy) { p.Rules[0].Actions = nil }, "model.access_policy.is_valid.actions.app_error"},
+		{"membership action rejected", func(p *AccessControlPolicy) { p.Rules[0].Actions = []string{AccessControlPolicyActionMembership} }, "model.access_policy.is_valid.actions.app_error"},
+		{"wildcard action rejected", func(p *AccessControlPolicy) { p.Rules[0].Actions = []string{"*"} }, "model.access_policy.is_valid.actions.app_error"},
+		{"upload action rejected", func(p *AccessControlPolicy) {
+			p.Rules[0].Actions = []string{AccessControlPolicyActionUploadFileAttachment}
+		}, "model.access_policy.is_valid.actions.app_error"},
+		{"rule role rejected", func(p *AccessControlPolicy) { p.Rules[0].Role = ChannelUserRoleId }, "model.access_policy.is_valid.rule_role.app_error"},
+		{"oversized rule name", func(p *AccessControlPolicy) { p.Rules[0].Name = strings.Repeat("a", MaxPolicyNameLength+1) }, "model.access_policy.is_valid.rule_name.app_error"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := validPolicy(tc.mutate)
+			err := p.IsValid()
+			require.NotNil(t, err)
+			require.Equal(t, tc.expectedID, err.Id)
+		})
+	}
+
+	// Scope rejections go through the top-level IsValid because
+	// validateScope runs first for non-empty scopes.
+	t.Run("team scope rejected", func(t *testing.T) {
+		p := validPolicy(func(p *AccessControlPolicy) {
+			p.Scope = AccessControlPolicyScopeTeam
+			p.ScopeID = NewId()
+		})
+		err := p.IsValid()
+		require.NotNil(t, err)
+		require.Equal(t, "model.access_policy.is_valid.scope.app_error", err.Id)
+	})
+
+	t.Run("scope id without scope rejected", func(t *testing.T) {
+		p := validPolicy(func(p *AccessControlPolicy) { p.ScopeID = NewId() })
+		err := p.IsValid()
+		require.NotNil(t, err)
+		require.Equal(t, "model.access_policy.is_valid.scope_id_without_scope.app_error", err.Id)
+	})
+
+	t.Run("invalid semver rejected", func(t *testing.T) {
+		// Version drives the IsValid switch, so an arbitrary bad semver
+		// can't reach the v0.5 validator through IsValid; exercise the
+		// validator directly like the other versions' tests do.
+		p := validPolicy(nil)
+		p.Version = "not-semver"
+		err := p.accessPolicyVersionV0_5()
+		require.NotNil(t, err)
+		require.Equal(t, "model.access_policy.is_valid.version.app_error", err.Id)
+	})
+}
+
+func TestPluginAccessControlResourceTypeRegistry(t *testing.T) {
+	t.Run("registry hit", func(t *testing.T) {
+		for _, pluginType := range []string{
+			AccessControlPolicyTypePluginAgent,
+			AccessControlPolicyTypePluginService,
+			AccessControlPolicyTypePluginMCP,
+		} {
+			rt, ok := PluginAccessControlResourceTypeFor(pluginType)
+			require.True(t, ok, pluginType)
+			require.Equal(t, pluginType, rt.Type)
+			require.Equal(t, "mattermost-ai", rt.OwnerPluginID)
+			require.Equal(t, []string{AccessControlPolicyActionUse}, rt.AllowedActions)
+			require.True(t, IsPluginAccessControlPolicyType(pluginType))
+		}
+	})
+
+	t.Run("registry miss", func(t *testing.T) {
+		for _, legacyType := range []string{
+			AccessControlPolicyTypeParent,
+			AccessControlPolicyTypeChannel,
+			AccessControlPolicyTypePermission,
+			AccessControlPolicyTypeTeam,
+			"bogus.type",
+			"",
+		} {
+			_, ok := PluginAccessControlResourceTypeFor(legacyType)
+			require.False(t, ok, legacyType)
+			require.False(t, IsPluginAccessControlPolicyType(legacyType), legacyType)
+		}
+	})
+
+	t.Run("action allow-list", func(t *testing.T) {
+		rt, ok := PluginAccessControlResourceTypeFor(AccessControlPolicyTypePluginAgent)
+		require.True(t, ok)
+		require.True(t, rt.IsActionAllowed(AccessControlPolicyActionUse))
+		require.False(t, rt.IsActionAllowed(AccessControlPolicyActionMembership))
+		require.False(t, rt.IsActionAllowed("*"))
+		require.False(t, rt.IsActionAllowed(""))
+	})
+
+	t.Run("ownership", func(t *testing.T) {
+		rt, ok := PluginAccessControlResourceTypeFor(AccessControlPolicyTypePluginAgent)
+		require.True(t, ok)
+		require.True(t, rt.IsOwnedBy("mattermost-ai"))
+		require.True(t, rt.IsOwnedBy("Mattermost-AI"), "ownership check must be case-insensitive")
+		require.False(t, rt.IsOwnedBy("other-plugin"))
+		require.False(t, rt.IsOwnedBy(""))
+	})
+}
+
+func TestInheritV0_5Rejected(t *testing.T) {
+	parent := &AccessControlPolicy{
+		ID:       NewId(),
+		Type:     AccessControlPolicyTypeParent,
+		Name:     "Parent",
+		Version:  AccessControlPolicyVersionV0_3,
+		Revision: 0,
+		Rules: []AccessControlPolicyRule{{
+			Actions:    []string{AccessControlPolicyActionMembership},
+			Expression: "true",
+		}},
+	}
+	child := &AccessControlPolicy{
+		ID:       NewId(),
+		Type:     AccessControlPolicyTypePluginAgent,
+		Name:     "Agent policy",
+		Version:  AccessControlPolicyVersionV0_5,
+		Revision: 0,
+		Rules: []AccessControlPolicyRule{{
+			Actions:    []string{AccessControlPolicyActionUse},
+			Expression: "true",
+		}},
+	}
+	err := child.Inherit(parent)
+	require.NotNil(t, err)
+	require.Equal(t, "model.access_policy.inherit.version.app_error", err.Id)
+	require.Empty(t, child.Imports)
+}
