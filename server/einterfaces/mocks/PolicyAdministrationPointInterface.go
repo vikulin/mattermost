@@ -67,6 +67,26 @@ func (_m *PolicyAdministrationPointInterface) DeletePolicy(rctx request.CTX, id 
 	return r0
 }
 
+// DeletePolicyOfType provides a mock function with given fields: rctx, id, expectedType
+func (_m *PolicyAdministrationPointInterface) DeletePolicyOfType(rctx request.CTX, id string, expectedType string) *model.AppError {
+	ret := _m.Called(rctx, id, expectedType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePolicyOfType")
+	}
+
+	var r0 *model.AppError
+	if rf, ok := ret.Get(0).(func(request.CTX, string, string) *model.AppError); ok {
+		r0 = rf(rctx, id, expectedType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*model.AppError)
+		}
+	}
+
+	return r0
+}
+
 // ExpressionToVisualAST provides a mock function with given fields: rctx, expression
 func (_m *PolicyAdministrationPointInterface) ExpressionToVisualAST(rctx request.CTX, expression string) (*model.VisualExpression, *model.AppError) {
 	ret := _m.Called(rctx, expression)

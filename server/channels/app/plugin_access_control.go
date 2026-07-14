@@ -4,12 +4,14 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/shared/mlog"
 	"github.com/mattermost/mattermost/server/public/shared/request"
+	"github.com/mattermost/mattermost/server/v8/channels/store"
 )
 
 // ── Plugin-owned access control (PDP + PAP proxies for the plugin API) ──
@@ -142,6 +144,17 @@ func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, re
 // lifecycle). policy.ID must be the resource's stable ID — it is never
 // generated here.
 func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUserID string, policy *model.AccessControlPolicy) (*model.AccessControlPolicy, *model.AppError) {
+	// Audit from the first instruction so every attempt — including
+	// precondition failures — leaves a record.
+	auditRec := a.MakeAuditRecord(rctx, model.AuditEventSavePluginAccessControlPolicy, model.AuditStatusFail)
+	defer a.LogAuditRec(rctx, auditRec, nil)
+	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
+	model.AddEventParameterToAuditRec(auditRec, "plugin_id", pluginID)
+	if policy != nil {
+		model.AddEventParameterToAuditRec(auditRec, "resource_type", policy.Type)
+		model.AddEventParameterAuditableToAuditRec(auditRec, "policy", policy)
+	}
+
 	acs := a.Srv().ch.AccessControl
 	if acs == nil {
 		return nil, model.NewAppError("SavePluginAccessControlPolicy", "app.pap.create_access_control_policy.app_error", nil, "Policy Administration Point is not initialized", http.StatusNotImplemented)
@@ -150,13 +163,6 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 	if policy == nil || policy.ID == "" {
 		return nil, model.NewAppError("SavePluginAccessControlPolicy", "app.access_control.plugin.invalid_id.app_error", nil, "policy ID is required", http.StatusBadRequest)
 	}
-
-	auditRec := a.MakeAuditRecord(rctx, model.AuditEventSavePluginAccessControlPolicy, model.AuditStatusFail)
-	defer a.LogAuditRec(rctx, auditRec, nil)
-	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
-	model.AddEventParameterToAuditRec(auditRec, "plugin_id", pluginID)
-	model.AddEventParameterToAuditRec(auditRec, "resource_type", policy.Type)
-	model.AddEventParameterAuditableToAuditRec(auditRec, "policy", policy)
 
 	if _, appErr := a.pluginAccessControlScopeCheck("SavePluginAccessControlPolicy", pluginID, policy.Type); appErr != nil {
 		return nil, appErr
@@ -203,9 +209,18 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 	return saved, nil
 }
 
-// GetPluginAccessControlPolicy returns the policy stored under id. Fails
-// closed with 404 (no existence leak) when the stored policy's type is not a
-// plugin type owned by the calling plugin.
+// pluginPolicyNotFoundError is the single 404 for every "not visible to this
+// plugin" condition: absent policy, foreign-type policy, and requested/stored
+// type mismatch. All paths return this byte-identical error so a plugin
+// cannot distinguish "does not exist" from "exists but is not yours".
+func pluginPolicyNotFoundError(where string) *model.AppError {
+	return model.NewAppError(where, "app.access_control.plugin.policy_not_found.app_error", nil, "", http.StatusNotFound)
+}
+
+// GetPluginAccessControlPolicy returns the policy stored under id. The
+// ownership check runs on a raw store read BEFORE any normalization, so
+// neither normalization errors nor distinguishable 404s can leak the
+// existence of policies the calling plugin does not own.
 func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string) (*model.AccessControlPolicy, *model.AppError) {
 	acs := a.Srv().ch.AccessControl
 	if acs == nil {
@@ -216,28 +231,42 @@ func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string
 		return nil, model.NewAppError("GetPluginAccessControlPolicy", "app.access_control.plugin.invalid_id.app_error", nil, "", http.StatusBadRequest)
 	}
 
-	policy, appErr := acs.GetPolicy(rctx, id)
-	if appErr != nil {
-		return nil, appErr
+	stored, err := a.Srv().Store().AccessControlPolicy().Get(rctx, id)
+	if err != nil {
+		var nfErr *store.ErrNotFound
+		if errors.As(err, &nfErr) {
+			return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
+		}
+		return nil, model.NewAppError("GetPluginAccessControlPolicy", "app.pap.get_policy.app_error", nil, err.Error(), http.StatusInternalServerError)
 	}
 
-	rt, ok := model.PluginAccessControlResourceTypeFor(policy.Type)
+	rt, ok := model.PluginAccessControlResourceTypeFor(stored.Type)
 	if !ok || !rt.IsOwnedBy(pluginID) {
-		return nil, model.NewAppError("GetPluginAccessControlPolicy", "app.access_control.plugin.policy_not_found.app_error", nil, "", http.StatusNotFound)
+		return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
+	}
+
+	// Ownership is established — only now run the user-facing normalization
+	// (ID→name expression restore) through the enterprise service.
+	policy, appErr := acs.GetPolicy(rctx, id)
+	if appErr != nil {
+		if appErr.StatusCode == http.StatusNotFound {
+			// Deleted between the raw read and the normalized read.
+			return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
+		}
+		return nil, appErr
 	}
 
 	return policy, nil
 }
 
-// DeletePluginAccessControlPolicy deletes the policy stored under id after
-// verifying the stored policy's type equals resourceType and is owned by the
-// calling plugin. Type mismatches fail closed with 404.
+// DeletePluginAccessControlPolicy deletes the policy stored under id. The
+// stored-type-equals-resourceType guard is enforced atomically by the store
+// (single guarded DELETE), so a concurrent delete/recreate under a different
+// type cannot be deleted through this path. Absent and type-mismatch fail
+// closed with the same 404.
 func (a *App) DeletePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUserID, resourceType, id string) *model.AppError {
-	acs := a.Srv().ch.AccessControl
-	if acs == nil {
-		return model.NewAppError("DeletePluginAccessControlPolicy", "app.pap.delete_policy.app_error", nil, "Policy Administration Point is not initialized", http.StatusNotImplemented)
-	}
-
+	// Audit from the first instruction so every attempt — including
+	// precondition failures — leaves a record.
 	auditRec := a.MakeAuditRecord(rctx, model.AuditEventDeletePluginAccessControlPolicy, model.AuditStatusFail)
 	defer a.LogAuditRec(rctx, auditRec, nil)
 	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
@@ -245,6 +274,11 @@ func (a *App) DeletePluginAccessControlPolicy(rctx request.CTX, pluginID, acting
 	model.AddEventParameterToAuditRec(auditRec, "resource_type", resourceType)
 	model.AddEventParameterToAuditRec(auditRec, "policy_id", id)
 	model.AddEventParameterToAuditRec(auditRec, "operation", "delete")
+
+	acs := a.Srv().ch.AccessControl
+	if acs == nil {
+		return model.NewAppError("DeletePluginAccessControlPolicy", "app.pap.delete_policy.app_error", nil, "Policy Administration Point is not initialized", http.StatusNotImplemented)
+	}
 
 	if _, appErr := a.pluginAccessControlScopeCheck("DeletePluginAccessControlPolicy", pluginID, resourceType); appErr != nil {
 		return appErr
@@ -256,23 +290,14 @@ func (a *App) DeletePluginAccessControlPolicy(rctx request.CTX, pluginID, acting
 		return model.NewAppError("DeletePluginAccessControlPolicy", "app.access_control.plugin.invalid_id.app_error", nil, "", http.StatusBadRequest)
 	}
 
-	policy, appErr := acs.GetPolicy(rctx, id)
-	if appErr != nil {
+	if appErr := acs.DeletePolicyOfType(rctx, id, resourceType); appErr != nil {
+		if appErr.StatusCode == http.StatusNotFound {
+			// Absent and stored-type mismatch are indistinguishable by design.
+			return pluginPolicyNotFoundError("DeletePluginAccessControlPolicy")
+		}
 		return appErr
 	}
 
-	// Fail closed: the stored type must match the requested type AND be owned
-	// by the calling plugin.
-	storedRT, ok := model.PluginAccessControlResourceTypeFor(policy.Type)
-	if policy.Type != resourceType || !ok || !storedRT.IsOwnedBy(pluginID) {
-		return model.NewAppError("DeletePluginAccessControlPolicy", "app.access_control.plugin.policy_not_found.app_error", nil, "", http.StatusNotFound)
-	}
-
-	if appErr := acs.DeletePolicy(rctx, id); appErr != nil {
-		return appErr
-	}
-
-	model.AddEventParameterAuditableToAuditRec(auditRec, "policy", policy)
 	auditRec.Success()
 
 	return nil

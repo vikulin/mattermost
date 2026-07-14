@@ -41,6 +41,11 @@ type PolicyAdministrationPointInterface interface {
 	GetPolicy(rctx request.CTX, id string) (*model.AccessControlPolicy, *model.AppError)
 	// DeletePolicy deletes the access control policy with the given ID.
 	DeletePolicy(rctx request.CTX, id string) *model.AppError
+	// DeletePolicyOfType deletes the policy with the given ID only when its
+	// stored Type equals expectedType, atomically. Absent and type-mismatch
+	// both return the same 404 so type-scoped callers cannot probe foreign
+	// policies.
+	DeletePolicyOfType(rctx request.CTX, id string, expectedType string) *model.AppError
 	// GetPoliciesForFieldIDs returns the policies that reference any of the given
 	// property field IDs in their CEL rule expressions.
 	GetPoliciesForFieldIDs(rctx request.CTX, fieldIDs []string) ([]*model.AccessControlPolicy, *model.AppError)
