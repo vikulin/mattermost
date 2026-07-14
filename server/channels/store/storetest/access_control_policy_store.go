@@ -29,6 +29,57 @@ func TestAccessControlPolicyStore(t *testing.T, rctx request.CTX, ss store.Store
 	t.Run("SearchByTeamIDWithScope", func(t *testing.T) { testAccessControlPolicyStoreSearchByTeamIDWithScope(t, rctx, ss) })
 	t.Run("GetActionsForPolicy", func(t *testing.T) { testAccessControlPolicyStoreGetActionsForPolicy(t, rctx, ss) })
 	t.Run("GetActionsForPolicies", func(t *testing.T) { testAccessControlPolicyStoreGetActionsForPolicies(t, rctx, ss) })
+	t.Run("PluginPolicy", func(t *testing.T) { testAccessControlPolicyStorePluginPolicy(t, rctx, ss) })
+}
+
+// testAccessControlPolicyStorePluginPolicy pins that a v0.5 plugin-registered
+// policy type round-trips through save/get/search/delete verbatim (the Type
+// column is a plain VARCHAR — no schema change needed for plugin types).
+func testAccessControlPolicyStorePluginPolicy(t *testing.T, rctx request.CTX, ss store.Store) {
+	policy := &model.AccessControlPolicy{
+		ID:       model.NewId(),
+		Name:     "Agent Gate " + model.NewId(),
+		Type:     model.AccessControlPolicyTypePluginAgent,
+		Active:   true,
+		Revision: 1,
+		Version:  model.AccessControlPolicyVersionV0_5,
+		Rules: []model.AccessControlPolicyRule{{
+			Actions:    []string{model.AccessControlPolicyActionUse},
+			Expression: `user.attributes.department == "eng"`,
+		}},
+	}
+
+	saved, err := ss.AccessControlPolicy().Save(rctx, policy)
+	require.NoError(t, err)
+	require.NotNil(t, saved)
+	require.Equal(t, model.AccessControlPolicyTypePluginAgent, saved.Type)
+
+	t.Run("Get round-trips type and rules", func(t *testing.T) {
+		got, err := ss.AccessControlPolicy().Get(rctx, policy.ID)
+		require.NoError(t, err)
+		require.Equal(t, model.AccessControlPolicyTypePluginAgent, got.Type)
+		require.Equal(t, model.AccessControlPolicyVersionV0_5, got.Version)
+		require.Equal(t, policy.Rules, got.Rules)
+	})
+
+	t.Run("SearchPolicies by plugin type finds it", func(t *testing.T) {
+		results, total, err := ss.AccessControlPolicy().SearchPolicies(rctx, model.AccessControlPolicySearch{
+			Type:  model.AccessControlPolicyTypePluginAgent,
+			Limit: 10,
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, total)
+		require.Len(t, results, 1)
+		require.Equal(t, policy.ID, results[0].ID)
+	})
+
+	t.Run("Delete removes it", func(t *testing.T) {
+		require.NoError(t, ss.AccessControlPolicy().Delete(rctx, policy.ID))
+
+		_, err := ss.AccessControlPolicy().Get(rctx, policy.ID)
+		var nfErr *store.ErrNotFound
+		require.True(t, errors.As(err, &nfErr))
+	})
 }
 
 func testAccessControlPolicyStoreSaveAndGet(t *testing.T, rctx request.CTX, ss store.Store) {
