@@ -219,7 +219,7 @@ export class SearchableChannelList extends React.PureComponent<Props, State> {
 
         const discoverableIndicator = isDiscoverable ? (
             <div
-                id='discoverableIndicatorContainer'
+                className='discoverableIndicatorContainer'
                 data-testid='discoverable-indicator'
                 aria-label={this.props.intl.formatMessage({id: 'more_channels.discoverable.aria', defaultMessage: 'Discoverable private channel'})}
             >

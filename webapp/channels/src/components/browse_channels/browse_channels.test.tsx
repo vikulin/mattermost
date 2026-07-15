@@ -796,7 +796,7 @@ describe('components/BrowseChannels', () => {
             expect(row).toHaveTextContent(/Discoverable/);
             expect(row).toHaveTextContent(/Request to join/);
             expect(row.querySelector('.more-modal__name .more-modal__discoverable-badge')).not.toBeInTheDocument();
-            expect(row.querySelector('#discoverableIndicatorContainer')).toBeInTheDocument();
+            expect(row.querySelector('.discoverableIndicatorContainer')).toBeInTheDocument();
 
             // The non-discoverable private channel still renders on initial
             // mount (filtering only kicks in on search), but it shows the
