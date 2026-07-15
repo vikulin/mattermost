@@ -111,6 +111,19 @@ func (rt PluginAccessControlResourceType) IsOwnedBy(pluginID string) bool {
 	return strings.EqualFold(rt.OwnerPluginID, pluginID)
 }
 
+// PluginAccessControlResourceTypesOwnedBy returns the registered resource-
+// policy type names owned by pluginID, sorted for deterministic iteration.
+func PluginAccessControlResourceTypesOwnedBy(pluginID string) []string {
+	var types []string
+	for name, rt := range pluginAccessControlResourceTypes {
+		if rt.IsOwnedBy(pluginID) {
+			types = append(types, name)
+		}
+	}
+	slices.Sort(types)
+	return types
+}
+
 // HasPermissionRuleAction reports whether ANY rule on this policy
 // carries a non-membership permission action (file upload/download).
 // Used by the API4 layer to gate channel-scope policies behind the

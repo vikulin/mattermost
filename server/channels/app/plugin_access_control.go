@@ -4,14 +4,12 @@
 package app
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/shared/mlog"
 	"github.com/mattermost/mattermost/server/public/shared/request"
-	"github.com/mattermost/mattermost/server/v8/channels/store"
 )
 
 // ── Plugin-owned access control (PDP + PAP proxies for the plugin API) ──
@@ -150,6 +148,10 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 	defer a.LogAuditRec(rctx, auditRec, nil)
 	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
 	model.AddEventParameterToAuditRec(auditRec, "plugin_id", pluginID)
+	// Every record carries an operation; create-vs-update is only knowable
+	// after the existence probe, so failures before it audit the upsert
+	// intent as-is and the param is refined once resolved.
+	model.AddEventParameterToAuditRec(auditRec, "operation", "create_or_update")
 	if policy != nil {
 		model.AddEventParameterToAuditRec(auditRec, "resource_type", policy.Type)
 		model.AddEventParameterAuditableToAuditRec(auditRec, "policy", policy)
@@ -217,10 +219,14 @@ func pluginPolicyNotFoundError(where string) *model.AppError {
 	return model.NewAppError(where, "app.access_control.plugin.policy_not_found.app_error", nil, "", http.StatusNotFound)
 }
 
-// GetPluginAccessControlPolicy returns the policy stored under id. The
-// ownership check runs on a raw store read BEFORE any normalization, so
-// neither normalization errors nor distinguishable 404s can leak the
-// existence of policies the calling plugin does not own.
+// GetPluginAccessControlPolicy returns the policy stored under id.
+//
+// Ownership resolution: the calling plugin may own several registered types,
+// so each owned type is tried through the enterprise GetPolicyOfType, which
+// verifies the expected type against the SINGLE store read it also
+// normalizes and returns — a concurrent delete/recreate can never swap a
+// foreign-type policy in between the ownership check and the return. Absent
+// and foreign both collapse into one byte-identical 404.
 func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string) (*model.AccessControlPolicy, *model.AppError) {
 	acs := a.Srv().ch.AccessControl
 	if acs == nil {
@@ -231,32 +237,19 @@ func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string
 		return nil, model.NewAppError("GetPluginAccessControlPolicy", "app.access_control.plugin.invalid_id.app_error", nil, "", http.StatusBadRequest)
 	}
 
-	stored, err := a.Srv().Store().AccessControlPolicy().Get(rctx, id)
-	if err != nil {
-		var nfErr *store.ErrNotFound
-		if errors.As(err, &nfErr) {
-			return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
+	for _, resourceType := range model.PluginAccessControlResourceTypesOwnedBy(pluginID) {
+		policy, appErr := acs.GetPolicyOfType(rctx, id, resourceType)
+		if appErr == nil {
+			return policy, nil
 		}
-		return nil, model.NewAppError("GetPluginAccessControlPolicy", "app.pap.get_policy.app_error", nil, err.Error(), http.StatusInternalServerError)
-	}
-
-	rt, ok := model.PluginAccessControlResourceTypeFor(stored.Type)
-	if !ok || !rt.IsOwnedBy(pluginID) {
-		return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
-	}
-
-	// Ownership is established — only now run the user-facing normalization
-	// (ID→name expression restore) through the enterprise service.
-	policy, appErr := acs.GetPolicy(rctx, id)
-	if appErr != nil {
 		if appErr.StatusCode == http.StatusNotFound {
-			// Deleted between the raw read and the normalized read.
-			return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
+			// Not stored under this owned type; try the next one.
+			continue
 		}
 		return nil, appErr
 	}
 
-	return policy, nil
+	return nil, pluginPolicyNotFoundError("GetPluginAccessControlPolicy")
 }
 
 // DeletePluginAccessControlPolicy deletes the policy stored under id. The
