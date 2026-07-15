@@ -294,19 +294,15 @@ export default class BrowseChannels extends React.PureComponent<Props, State> {
                 teamName: this.props.teamName,
             },
         });
-        if (done) {
-            done();
-        }
+        done();
     };
 
     handleWithdrawRequest = async (channel: Channel, done: () => void) => {
         const result = await this.props.actions.withdrawMyChannelJoinRequest(channel.id);
         if (result?.error) {
-            this.setState({serverError: result.error.message});
+            this.setState({serverError: result.error.message ?? result.error.server_error_id ?? 'Unknown error'});
         }
-        if (done) {
-            done();
-        }
+        done();
     };
 
     search = (term: string) => {
