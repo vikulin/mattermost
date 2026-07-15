@@ -23,7 +23,19 @@ Always import via the full package name (`@mattermost/shared/...`), never via re
 
 ## Plugin-facing global surface
 
-Anything published on `window.WebappUtils`, `window.Editor`, `window.Components`, `window.ProductApi`, or any other top-level global is a stable contract. Third-party plugins pin against it via `min_server_version`, so treat every entry like a public API.
+The web app exposes several top-level `window.*` globals to plugins. **Not all of them are stable.** This section covers only the *published* subset — allowlisted entries whose contract types live in `@mattermost/shared/types/global/` and which are asserted against the real implementation at build time. Third-party plugins pin against those via `min_server_version`, so treat every published entry like a public API.
+
+Stable, published surfaces this doc applies to:
+
+- `window.WebappUtils.modals.openModalById` / `canOpenModalId` (contract: `PublishedModalUtils`).
+- `window.Editor` (contract: `PublishedEditorUtils`).
+
+Explicitly **not** stable, and outside this doc:
+
+- `window.Components` — internal-plugin-only, documented at `webapp/channels/src/plugins/export.ts` as "may have breaking changes in the future outside of major releases". Do not treat additions here as public API.
+- `window.ProductApi` — a prototype for internal plugins during the transition to module federation, per the comment at the same file.
+
+Other legacy fields on `window.WebappUtils` (`browserHistory`, `notificationSounds`, `channels`, `popouts`, etc.) predate the published-allowlist pattern; changes to those still warrant a plugin-compat review, but they are not governed by the drift-check machinery below.
 
 **Where things live**
 
