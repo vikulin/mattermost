@@ -20,3 +20,28 @@ Prefer the shared components from `@mattermost/shared` over hand-rolled equivale
   ```
 
 Always import via the full package name (`@mattermost/shared/...`), never via relative paths into `platform/shared/`.
+
+## Plugin-facing global surface
+
+Anything published on `window.WebappUtils`, `window.Editor`, `window.Components`, `window.ProductApi`, or any other top-level global is a stable contract. Third-party plugins pin against it via `min_server_version`, so treat every entry like a public API.
+
+**Where things live**
+
+- Contract types: `webapp/platform/shared/src/types/global/*.ts` (e.g. `PublishedModalUtils`, `PublishedEditorUtils`). Do not import channels internals here — if a needed type lives in `webapp/channels`, move the type portion to `@mattermost/types` or `@mattermost/shared/types/global/` first.
+- Concrete implementations and allowlists: `webapp/channels/src/plugins/published_*.ts`.
+- Wiring onto `window`: `webapp/channels/src/plugins/export.ts`.
+
+**Contract drift**
+
+Each allowlist file must assert that its real components/functions stay assignable to the published contract at build time (see `ContractHonored` + `AssertPublished*Contract` in `published_modals.ts` and `published_editor.ts`). Do not remove those `type Assert*Contract = ...` aliases — they look unused but are the only thing that makes `tsc` fail on drift.
+
+**Adding an entry**
+
+1. Add the type to `platform/shared/src/types/global/<file>.ts`.
+2. Add the implementation to the corresponding `channels/src/plugins/published_<file>.ts` allowlist.
+3. Add a unit test to `published_<file>.test.ts`.
+4. Only wire it onto `window` in `export.ts` once 1–3 land in the same PR.
+
+**Removing or changing an entry**
+
+Mark it `@deprecated` in the shared type for at least two minor releases before deletion, and call it out in the PR description. Never silently change a field's type — that breaks plugins pinned to an older `min_server_version`.
