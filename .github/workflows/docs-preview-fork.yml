@@ -17,9 +17,6 @@ permissions:
   statuses: write
 
 jobs:
-  # workflow_dispatch jobs are not attached to the PR check suite. The commit
-  # status below is what appears on the PR — same pattern as
-  # mattermost/docs preview-env-fork.yml (CLD-5815).
   update-initial-status:
     runs-on: ubuntu-latest
     steps:
