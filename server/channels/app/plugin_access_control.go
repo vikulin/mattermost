@@ -14,23 +14,18 @@ import (
 	"github.com/mattermost/mattermost/server/v8/channels/store"
 )
 
-// ── Plugin-owned access control (PDP + PAP proxies for the plugin API) ──
-//
-// Plugin-registered resource types (model.PluginAccessControlResourceTypeFor)
-// are managed exclusively through these methods. Every method is scoped to the
-// calling plugin: the requested (or stored) policy type must be owned by
-// pluginID or the call fails closed.
+// Plugin-owned access control (PDP + PAP proxies for the plugin API). Every
+// method is scoped to the calling plugin: the requested (or stored) policy
+// type must be owned by pluginID or the call fails closed.
 
-// pluginAccessControlQueryLimitDefault / Max bound plugin-supplied paging for
-// the users-query proxy so an unbounded limit can't become an unbounded user
-// query. Max mirrors the api4 autocomplete handler's cap.
+// Bounds for plugin-supplied paging; max mirrors the api4 autocomplete cap.
 const (
 	pluginAccessControlQueryLimitDefault = 50
 	pluginAccessControlQueryLimitMax     = 100
 )
 
 // pluginAccessControlScopeCheck resolves the registry entry for resourceType
-// and verifies ownership by pluginID. Returns (entry, nil) or a 400/403 AppError.
+// and verifies ownership by pluginID.
 func (a *App) pluginAccessControlScopeCheck(where, pluginID, resourceType string) (model.PluginAccessControlResourceType, *model.AppError) {
 	rt, ok := model.PluginAccessControlResourceTypeFor(resourceType)
 	if !ok {
@@ -42,10 +37,9 @@ func (a *App) pluginAccessControlScopeCheck(where, pluginID, resourceType string
 	return rt, nil
 }
 
-// pluginAccessControlAvailable reports whether the enterprise ABAC service can
-// possibly answer: service registered AND Enterprise Advanced license AND
-// config flag on. Checked BEFORE calling enterprise so its readiness AppErrors
-// never leak into plugin decision calls.
+// pluginAccessControlAvailable reports whether the enterprise ABAC service is
+// registered, licensed, and enabled. Checked before calling enterprise so its
+// readiness AppErrors never leak into plugin decision calls.
 func (a *App) pluginAccessControlAvailable() bool {
 	return a.Srv().ch.AccessControl != nil &&
 		model.MinimumEnterpriseAdvancedLicense(a.License()) &&
@@ -53,8 +47,7 @@ func (a *App) pluginAccessControlAvailable() bool {
 }
 
 // validatePluginActingUser validates actingUserID is a well-formed ID of an
-// existing user. 400 on failure (trusted call — the plugin is the permission
-// gate, core does not re-run permission checks).
+// existing user. Permission checks are the calling plugin's responsibility.
 func (a *App) validatePluginActingUser(where, actingUserID string) *model.AppError {
 	if !model.IsValidId(actingUserID) {
 		return model.NewAppError(where, "app.access_control.plugin.invalid_acting_user.app_error", nil, "", http.StatusBadRequest)
@@ -65,12 +58,10 @@ func (a *App) validatePluginActingUser(where, actingUserID string) *model.AppErr
 	return nil
 }
 
-// resolvePluginPolicyExistence resolves policy existence for a plugin resource
-// when evaluation is impossible, via a RAW open-core store read — no enterprise
-// service, no isReady gate, no normalization. Existence is resolved in the
-// global ID space: any stored row under resourceID makes the resource
-// policy-gated. no_policy is returned only on a definitive not-found; every
-// failure to determine existence stays unavailable (fail closed).
+// resolvePluginPolicyExistence resolves policy existence via a raw open-core
+// store read when evaluation is impossible. Any stored row under resourceID
+// (any type) makes the resource policy-gated: no_policy only on a definitive
+// not-found; any failure to determine existence stays unavailable (fail closed).
 func (a *App) resolvePluginPolicyExistence(rctx request.CTX, pluginID, resourceType, resourceID, reason string) *model.PluginAccessControlDecision {
 	policy, err := a.Srv().Store().AccessControlPolicy().Get(rctx, resourceID)
 	if err != nil {
@@ -84,8 +75,7 @@ func (a *App) resolvePluginPolicyExistence(rctx request.CTX, pluginID, resourceT
 		return &model.PluginAccessControlDecision{Outcome: model.AccessDecisionOutcomeUnavailable}
 	}
 	if policy.Type != resourceType {
-		// Global ID space: a foreign-type row at a plugin resource ID is an
-		// anomaly (collision or corruption). Fail closed and demand attention.
+		// A foreign-type row under a plugin resource ID is an anomaly; fail closed.
 		rctx.Logger().Warn("Plugin access evaluation: existence fallback found a policy of a different type under the resource ID; returning unavailable",
 			mlog.String("plugin_id", pluginID), mlog.String("resource_id", resourceID),
 			mlog.String("requested_type", resourceType), mlog.String("stored_type", policy.Type),
@@ -96,19 +86,14 @@ func (a *App) resolvePluginPolicyExistence(rctx request.CTX, pluginID, resourceT
 
 // EvaluatePluginAccessRequest evaluates whether userID may perform action on
 // the plugin-registered resource (resourceType, resourceID). AppErrors are
-// returned only for caller programming errors (unknown/foreign type, bad
-// action, malformed IDs); every operational condition is an outcome:
-// no_policy, deny, allow, or unavailable. Failures never map to allow or
-// no_policy.
+// returned only for caller programming errors; every operational condition is
+// an outcome, and failures never map to allow or no_policy.
 //
-// Whenever evaluation is impossible (service off / unlicensed / disabled /
-// subject build failure / evaluator infra failure / unknown evaluator
-// outcome), policy existence is still resolved via a raw open-core store
-// read: no_policy means no policy exists for the resource — determined even
-// when ABAC is unavailable, so the caller can safely apply legacy behavior;
-// unavailable means evaluation was impossible AND a policy exists under the
-// resource ID (any type) or existence could not be determined — the caller
-// must fail closed.
+// When evaluation is impossible, policy existence is still resolved via a raw
+// store read: no_policy means no policy exists for the resource (the caller
+// can safely apply legacy behavior); unavailable means a policy exists under
+// the resource ID (any type) or existence could not be determined (the caller
+// must fail closed).
 func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, resourceType, resourceID, action string) (*model.PluginAccessControlDecision, *model.AppError) {
 	rt, appErr := a.pluginAccessControlScopeCheck("EvaluatePluginAccessRequest", pluginID, resourceType)
 	if appErr != nil {
@@ -125,8 +110,6 @@ func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, re
 		return a.resolvePluginPolicyExistence(rctx, pluginID, resourceType, resourceID, "abac_unavailable"), nil
 	}
 
-	// Subject build failures mean evaluation is impossible; existence is
-	// still resolved through the fallback store read.
 	user, appErr := a.GetUser(userID)
 	if appErr != nil {
 		rctx.Logger().Warn("Plugin access evaluation: failed to load user; resolving policy existence",
@@ -150,9 +133,8 @@ func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, re
 		Action:   action,
 	})
 	if evalErr != nil {
-		// The plugin lane only returns AppErrors for infra failures before
-		// policy resolution (CEL eval errors are converted to deny inside
-		// the evaluator), so fall back to the raw existence read.
+		// The evaluator converts CEL errors to deny; an error here is an
+		// infra failure before policy resolution.
 		rctx.Logger().Warn("Plugin access evaluation: evaluator error; resolving policy existence",
 			mlog.String("plugin_id", pluginID),
 			mlog.String("resource_id", resourceID),
@@ -167,8 +149,7 @@ func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, re
 		model.AccessDecisionOutcomeUnavailable:
 		return &model.PluginAccessControlDecision{Outcome: decision.Outcome}, nil
 	default:
-		// Fail closed without guessing from the collapsed boolean —
-		// Decision==true is ambiguous between allow and no_policy.
+		// Decision==true is ambiguous between allow and no_policy; fail closed.
 		rctx.Logger().Warn("Plugin access evaluation: evaluator returned no outcome; resolving policy existence",
 			mlog.String("plugin_id", pluginID),
 			mlog.String("resource_id", resourceID))
@@ -177,20 +158,16 @@ func (a *App) EvaluatePluginAccessRequest(rctx request.CTX, pluginID, userID, re
 }
 
 // SavePluginAccessControlPolicy creates or updates a plugin-owned access
-// control policy. Version is forced to v0.5 and Active to true (policy
-// existence == enforcement; plugin types have no separate activation
-// lifecycle). policy.ID must be the resource's stable ID — it is never
-// generated here.
+// control policy. Version is forced to v0.5 and Active to true (plugin types
+// have no separate activation lifecycle); policy.ID must be the resource's
+// stable ID.
 func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUserID string, policy *model.AccessControlPolicy) (*model.AccessControlPolicy, *model.AppError) {
-	// Audit from the first instruction so every attempt — including
-	// precondition failures — leaves a record.
+	// Audit every attempt, including precondition failures.
 	auditRec := a.MakeAuditRecord(rctx, model.AuditEventSavePluginAccessControlPolicy, model.AuditStatusFail)
 	defer a.LogAuditRec(rctx, auditRec, nil)
 	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
 	model.AddEventParameterToAuditRec(auditRec, "plugin_id", pluginID)
-	// Every record carries an operation; create-vs-update is only knowable
-	// after the existence probe, so failures before it audit the upsert
-	// intent as-is and the param is refined once resolved.
+	// Refined to create/update once the existence probe resolves.
 	model.AddEventParameterToAuditRec(auditRec, "operation", "create_or_update")
 	if policy != nil {
 		model.AddEventParameterToAuditRec(auditRec, "resource_type", policy.Type)
@@ -216,9 +193,8 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 	policy.Version = model.AccessControlPolicyVersionV0_5
 	policy.Active = true
 
-	// Prior-existence probe: create-vs-update for the audit trail, plus a
-	// cross-type overwrite guard — a plugin must never overwrite a policy of
-	// a different type sharing the ID (the ID space is global).
+	// Existence probe: create-vs-update for the audit trail, plus a guard
+	// against overwriting a policy of a different type sharing the ID.
 	operation := "update"
 	existing, getErr := acs.GetPolicy(rctx, policy.ID)
 	if getErr != nil {
@@ -235,9 +211,8 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 		return nil, appErr
 	}
 
-	// Thread the author: enterprise SavePolicy derives the caller ID from the
-	// session (masking / CPA visibility / rank resolution), so synthesize one
-	// for the acting user.
+	// Enterprise SavePolicy derives the caller ID from the session, so
+	// synthesize one for the acting user.
 	saveCtx := rctx.WithSession(&model.Session{UserId: actingUserID})
 	saved, appErr := acs.SavePolicy(saveCtx, policy)
 	if appErr != nil {
@@ -252,21 +227,15 @@ func (a *App) SavePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUs
 }
 
 // pluginPolicyNotFoundError is the single 404 for every "not visible to this
-// plugin" condition: absent policy, foreign-type policy, and requested/stored
-// type mismatch. All paths return this byte-identical error so a plugin
-// cannot distinguish "does not exist" from "exists but is not yours".
+// plugin" condition, so a plugin cannot distinguish "does not exist" from
+// "exists but is not yours".
 func pluginPolicyNotFoundError(where string) *model.AppError {
 	return model.NewAppError(where, "app.access_control.plugin.policy_not_found.app_error", nil, "", http.StatusNotFound)
 }
 
-// GetPluginAccessControlPolicy returns the policy stored under id.
-//
-// Ownership resolution: the calling plugin may own several registered types,
-// so each owned type is tried through the enterprise GetPolicyOfType, which
-// verifies the expected type against the SINGLE store read it also
-// normalizes and returns — a concurrent delete/recreate can never swap a
-// foreign-type policy in between the ownership check and the return. Absent
-// and foreign both collapse into one byte-identical 404.
+// GetPluginAccessControlPolicy returns the policy stored under id, trying
+// each type owned by the calling plugin through the atomic GetPolicyOfType.
+// Absent and foreign-type both collapse into one byte-identical 404.
 func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string) (*model.AccessControlPolicy, *model.AppError) {
 	acs := a.Srv().ch.AccessControl
 	if acs == nil {
@@ -283,7 +252,6 @@ func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string
 			return policy, nil
 		}
 		if appErr.StatusCode == http.StatusNotFound {
-			// Not stored under this owned type; try the next one.
 			continue
 		}
 		return nil, appErr
@@ -293,13 +261,10 @@ func (a *App) GetPluginAccessControlPolicy(rctx request.CTX, pluginID, id string
 }
 
 // DeletePluginAccessControlPolicy deletes the policy stored under id. The
-// stored-type-equals-resourceType guard is enforced atomically by the store
-// (single guarded DELETE), so a concurrent delete/recreate under a different
-// type cannot be deleted through this path. Absent and type-mismatch fail
-// closed with the same 404.
+// stored-type-equals-resourceType guard is enforced atomically by the store;
+// absent and type-mismatch fail closed with the same 404.
 func (a *App) DeletePluginAccessControlPolicy(rctx request.CTX, pluginID, actingUserID, resourceType, id string) *model.AppError {
-	// Audit from the first instruction so every attempt — including
-	// precondition failures — leaves a record.
+	// Audit every attempt, including precondition failures.
 	auditRec := a.MakeAuditRecord(rctx, model.AuditEventDeletePluginAccessControlPolicy, model.AuditStatusFail)
 	defer a.LogAuditRec(rctx, auditRec, nil)
 	model.AddEventParameterToAuditRec(auditRec, "actor", actingUserID)
@@ -325,7 +290,6 @@ func (a *App) DeletePluginAccessControlPolicy(rctx request.CTX, pluginID, acting
 
 	if appErr := acs.DeletePolicyOfType(rctx, id, resourceType); appErr != nil {
 		if appErr.StatusCode == http.StatusNotFound {
-			// Absent and stored-type mismatch are indistinguishable by design.
 			return pluginPolicyNotFoundError("DeletePluginAccessControlPolicy")
 		}
 		return appErr
@@ -383,8 +347,7 @@ func (a *App) QueryUsersForPluginAccessControlExpression(rctx request.CTX, plugi
 // policy editor autocomplete. No resourceType scope check — field visibility
 // is attribute-level, enforced by the underlying method via the acting user.
 func (a *App) GetPluginAccessControlFieldsAutocomplete(rctx request.CTX, pluginID, actingUserID, after string, limit int) ([]*model.PropertyField, *model.AppError) {
-	// The underlying method does not gate on the service; keep plugin
-	// behavior uniform with the other proxies.
+	// The underlying method does not gate on the service itself.
 	if a.Srv().ch.AccessControl == nil {
 		return nil, model.NewAppError("GetPluginAccessControlFieldsAutocomplete", "app.pap.get_access_control_auto_complete.app_error", nil, "Policy Administration Point is not initialized", http.StatusNotImplemented)
 	}
@@ -399,8 +362,7 @@ func (a *App) GetPluginAccessControlFieldsAutocomplete(rctx request.CTX, pluginI
 		limit = pluginAccessControlQueryLimitMax
 	}
 
-	// An empty cursor means "first page"; the underlying search requires a
-	// well-formed cursor ID, so map it to the lowest sentinel like api4 does.
+	// Empty cursor means first page; map to the lowest sentinel like api4 does.
 	if after == "" {
 		after = strings.Repeat("0", 26)
 	}

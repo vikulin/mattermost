@@ -16,11 +16,9 @@ import (
 )
 
 // requirePluginRPCGobSafe gob-encodes v the way the plugin RPC layer encodes
-// an API reply. The gob registrations from public/plugin's client_rpc init()
-// are active because this package imports public/plugin. An unregistered
-// concrete type inside an interface-typed field fails encoding, and net/rpc
-// reacts by shutting down the SHARED plugin→server API connection — every
-// subsequent plugin API call then fails with "connection is shut down".
+// an API reply (public/plugin's client_rpc gob registrations are active via
+// the import). An unregistered concrete type inside an interface-typed field
+// fails encoding, which shuts down the shared plugin RPC connection.
 func requirePluginRPCGobSafe(t *testing.T, v any) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -30,10 +28,8 @@ func requirePluginRPCGobSafe(t *testing.T, v any) {
 
 // TestPluginAccessControlGobSafety pins that every payload the plugin access
 // control API can return over net/rpc survives gob encoding. The autocomplete
-// subtest is the regression test for the native-attribute options bug: the
-// bool-select options used to be []map[string]string inside Attrs
-// (map[string]any), which gob rejects as unregistered and which fatally
-// poisoned the plugin's RPC connection.
+// subtest is the regression test for the native-attribute options bug
+// (bool-select options were []map[string]string, which gob rejects).
 func TestPluginAccessControlGobSafety(t *testing.T) {
 	th := Setup(t).InitBasic(t)
 	actingUserID := th.BasicUser.Id
@@ -45,8 +41,8 @@ func TestPluginAccessControlGobSafety(t *testing.T) {
 		require.Nil(t, appErr)
 		require.NotEmpty(t, fields, "native attribute fields expected on the first page")
 
-		// Prove the payload actually contains the risky part: a native
-		// bool-select field carrying options inside Attrs.
+		// Prove the payload contains a native bool-select field carrying
+		// options inside Attrs.
 		hasBoolSelect := false
 		for _, f := range fields {
 			if f.Attrs[model.PropertyFieldAttributeOptions] != nil {
@@ -59,11 +55,8 @@ func TestPluginAccessControlGobSafety(t *testing.T) {
 	})
 
 	t.Run("policy with JSON-decoded Props", func(t *testing.T) {
-		// Stored policies hydrate Props via json.Unmarshal into
-		// map[string]any, so the concrete types inside are exactly
-		// map[string]any, []any, string, float64, bool, and nil — all of
-		// which gob accepts (the containers are registered by client_rpc,
-		// the scalars are gob builtins). This test documents and pins that.
+		// Stored policies hydrate Props via json.Unmarshal, so the concrete
+		// types inside are exactly the ones gob accepts; pin that.
 		var props map[string]any
 		require.NoError(t, json.Unmarshal(
 			[]byte(`{"nested":{"k":"v"},"list":[1,"two",true],"s":"x","n":1.5,"b":true,"z":null}`), &props))
@@ -74,8 +67,7 @@ func TestPluginAccessControlGobSafety(t *testing.T) {
 	})
 
 	t.Run("visual AST with every runtime value shape", func(t *testing.T) {
-		// The enterprise AST→visual conversion produces string, bool,
-		// int64, uint64, float64, nil, and []any condition values.
+		// The enterprise AST→visual conversion produces these value shapes.
 		visual := &model.VisualExpression{Conditions: []model.Condition{
 			{Attribute: "user.attributes.team", Operator: "==", Value: "eng"},
 			{Attribute: "user.attributes.admin", Operator: "==", Value: true},

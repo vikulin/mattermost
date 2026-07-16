@@ -1391,9 +1391,8 @@ func TestAccessPolicyVersionV0_5(t *testing.T) {
 	})
 
 	t.Run("invalid semver rejected", func(t *testing.T) {
-		// Version drives the IsValid switch, so an arbitrary bad semver
-		// can't reach the v0.5 validator through IsValid; exercise the
-		// validator directly like the other versions' tests do.
+		// A bad semver can't reach the v0.5 validator through the IsValid
+		// switch, so exercise the validator directly.
 		p := validPolicy(nil)
 		p.Version = "not-semver"
 		err := p.accessPolicyVersionV0_5()

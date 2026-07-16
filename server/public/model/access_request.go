@@ -225,11 +225,9 @@ const (
 // The Decision field is a boolean indicating whether the request is allowed or not.
 type AccessDecision struct {
 	Decision bool `json:"decision"`
-	// Outcome is the explicit evaluation outcome. Decision stays the
-	// collapsed boolean and remains authoritative for existing callers;
-	// Outcome disambiguates allow vs no_policy for consumers that care.
-	// unavailable is never produced by the evaluator itself — it is
-	// produced by the open-core app layer when the service cannot answer.
+	// Outcome disambiguates allow vs no_policy; Decision remains the
+	// authoritative collapsed boolean for existing callers. unavailable is
+	// produced only by the open-core app layer, never by the evaluator.
 	Outcome AccessDecisionOutcome `json:"outcome,omitempty"`
 	Context map[string]any        `json:"context,omitempty"`
 }

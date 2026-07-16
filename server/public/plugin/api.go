@@ -1658,19 +1658,14 @@ type API interface {
 
 	// EvaluateAccessControl evaluates whether userID may perform action on the
 	// plugin-registered resource (resourceType, resourceID). The calling plugin
-	// must own resourceType. The returned Outcome is one of allow / deny /
-	// no_policy / unavailable. Failures never map to allow; a failure maps to
-	// no_policy only when the server has positively determined that no policy
-	// exists for the resource, to deny when a policy was resolved and failed
-	// defensively (type mismatch, CEL evaluation error), and to unavailable
-	// otherwise.
-	//
-	// no_policy means no policy exists for the resource — the server resolves
-	// policy existence even when the access control engine is unavailable, so
-	// the caller can safely apply legacy behavior. unavailable means evaluation
-	// was impossible AND a policy exists for the resource or existence could not
-	// be determined — the caller MUST fail closed (deny). The plugin must treat
-	// any returned error defensively as deny.
+	// must own resourceType. Outcome is one of allow / deny / no_policy /
+	// unavailable; failures never map to allow. no_policy means the server
+	// positively determined that no policy exists for the resource — resolved
+	// even when the access control engine is unavailable — so the caller can
+	// safely apply legacy behavior. unavailable means evaluation was impossible
+	// AND a policy exists for the resource or existence could not be determined
+	// — the caller MUST fail closed (deny). The plugin must treat any returned
+	// error defensively as deny.
 	//
 	// @tag AccessControl
 	// Minimum server version: 11.10

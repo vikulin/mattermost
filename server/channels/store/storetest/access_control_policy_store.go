@@ -33,9 +33,6 @@ func TestAccessControlPolicyStore(t *testing.T, rctx request.CTX, ss store.Store
 	t.Run("DeleteIfType", func(t *testing.T) { testAccessControlPolicyStoreDeleteIfType(t, rctx, ss) })
 }
 
-// testAccessControlPolicyStoreDeleteIfType pins the atomic type-guarded
-// delete: only a row whose stored Type matches is removed, and absent vs
-// type-mismatch are indistinguishable (both ErrNotFound).
 func testAccessControlPolicyStoreDeleteIfType(t *testing.T, rctx request.CTX, ss store.Store) {
 	newAgentPolicy := func() *model.AccessControlPolicy {
 		return &model.AccessControlPolicy{
@@ -103,9 +100,6 @@ func testAccessControlPolicyStoreDeleteIfType(t *testing.T, rctx request.CTX, ss
 	})
 }
 
-// testAccessControlPolicyStorePluginPolicy pins that a v0.5 plugin-registered
-// policy type round-trips through save/get/search/delete verbatim (the Type
-// column is a plain VARCHAR — no schema change needed for plugin types).
 func testAccessControlPolicyStorePluginPolicy(t *testing.T, rctx request.CTX, ss store.Store) {
 	policy := &model.AccessControlPolicy{
 		ID:       model.NewId(),

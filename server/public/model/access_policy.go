@@ -35,9 +35,9 @@ const (
 	AccessControlPolicyActionUploadFileAttachment   = "upload_file_attachment"
 	AccessControlPolicyActionDownloadFileAttachment = "download_file_attachment"
 
-	// AccessControlPolicyActionUse is the single action for all plugin
-	// types in this milestone. Deliberately NOT added to allowedActionsV0_3 /
-	// allowedPermissionActionsV0_4 — validated only through the per-type registry.
+	// AccessControlPolicyActionUse is the single action for plugin types,
+	// validated only through the per-type registry (deliberately not added
+	// to allowedActionsV0_3 / allowedPermissionActionsV0_4).
 	AccessControlPolicyActionUse = "use"
 
 	AccessControlPolicyScopeTeam = "team"
@@ -79,7 +79,7 @@ type PluginAccessControlResourceType struct {
 }
 
 // pluginAccessControlResourceTypes is the static registry of plugin-owned
-// resource-policy types. Adding a future type is a one-line entry.
+// resource-policy types.
 var pluginAccessControlResourceTypes = map[string]PluginAccessControlResourceType{
 	AccessControlPolicyTypePluginAgent:   {AccessControlPolicyTypePluginAgent, "mattermost-ai", []string{AccessControlPolicyActionUse}},
 	AccessControlPolicyTypePluginService: {AccessControlPolicyTypePluginService, "mattermost-ai", []string{AccessControlPolicyActionUse}},
@@ -581,10 +581,9 @@ func (p *AccessControlPolicy) accessPolicyVersionV0_4() *AppError {
 	return nil
 }
 
-// accessPolicyVersionV0_5 validates a v0.5 policy. v0.5 accepts only
-// plugin-registered resource types (see pluginAccessControlResourceTypes):
-// system scope only, no imports, no roles, and per-rule actions restricted to
-// the type's registry allow-list.
+// accessPolicyVersionV0_5 validates a v0.5 policy: plugin-registered resource
+// types only, system scope, no imports or roles, and per-rule actions
+// restricted to the type's registry allow-list.
 func (p *AccessControlPolicy) accessPolicyVersionV0_5() *AppError {
 	rt, ok := PluginAccessControlResourceTypeFor(p.Type)
 	if !ok {
@@ -620,8 +619,7 @@ func (p *AccessControlPolicy) accessPolicyVersionV0_5() *AppError {
 		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.roles.app_error", nil, "", 400)
 	}
 
-	// System scope only: validateScope allows team scopes, so reject any
-	// non-empty scope here.
+	// validateScope allows team scopes; plugin policies are system scope only.
 	if p.Scope != "" || p.ScopeID != "" {
 		return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.scope.app_error", nil, "", 400)
 	}
@@ -638,7 +636,6 @@ func (p *AccessControlPolicy) accessPolicyVersionV0_5() *AppError {
 		if rule.Role != "" {
 			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rule_role.app_error", nil, "plugin policy rules must not have a role", 400)
 		}
-		// Rule names are optional but bounded when present.
 		if len(rule.Name) > MaxPolicyNameLength {
 			return NewAppError("AccessControlPolicy.IsValid", "model.access_policy.is_valid.rule_name.app_error", nil, "rule name exceeds the policy max length", 400)
 		}

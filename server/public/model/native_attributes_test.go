@@ -41,9 +41,8 @@ func TestNativeUserAttributeFields(t *testing.T) {
 			require.NotNil(t, f)
 			assert.Equal(t, PropertyFieldTypeSelect, f.Type)
 			assert.Equal(t, []string{"==", "!="}, f.Attrs[NativeAttributeAttrOperators])
-			// Options are held as []any/map[string]any (gob-registered
-			// containers) so the field survives the plugin RPC boundary;
-			// the JSON shape is pinned below.
+			// []any/map[string]any so the field survives the plugin RPC
+			// boundary; the JSON shape is pinned below.
 			assert.Equal(t, []any{map[string]any{"name": "true"}, map[string]any{"name": "false"}}, f.Attrs[PropertyFieldAttributeOptions])
 
 			data, err := json.Marshal(f.Attrs[PropertyFieldAttributeOptions])

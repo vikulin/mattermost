@@ -354,12 +354,9 @@ func (s *SqlAccessControlPolicyStore) Delete(rctx request.CTX, id string) error 
 }
 
 // DeleteIfType deletes the policy only when its stored Type equals
-// expectedType. The guard is enforced by the DELETE statement itself
-// (WHERE Id AND Type + rows-affected check), so a concurrent delete/recreate
-// under a different type between the read and the delete rolls the whole
-// transaction back. Absent row and type mismatch both return ErrNotFound —
-// indistinguishable by design so type-scoped callers cannot probe for the
-// existence of foreign policies.
+// expectedType, enforced by the DELETE statement itself (WHERE Id AND Type +
+// rows-affected check). Absent row and type mismatch both return ErrNotFound
+// so type-scoped callers cannot probe foreign policies.
 func (s *SqlAccessControlPolicyStore) DeleteIfType(rctx request.CTX, id, expectedType string) error {
 	tx, err := s.GetMaster().Begin()
 	if err != nil {
@@ -409,8 +406,8 @@ func (s *SqlAccessControlPolicyStore) DeleteIfType(rctx request.CTX, id, expecte
 		return err
 	}
 	if rows == 0 {
-		// Row changed type (or vanished) since the read — abort so the
-		// history insert above is rolled back with the transaction.
+		// Row changed type (or vanished) since the read; roll back the
+		// transaction, including the history insert.
 		err = store.NewErrNotFound("AccessControlPolicy", id)
 		return err
 	}

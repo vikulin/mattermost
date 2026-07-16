@@ -23,13 +23,10 @@ import (
 	"github.com/mattermost/mattermost/server/v8/einterfaces/mocks"
 )
 
-// ── Plugin-owned access control (PDP + PAP proxies for the plugin API) ──
-
 const testAgentsPluginID = "mattermost-ai"
 
-// enablePluginAccessControl licenses + configures the server so
-// pluginAccessControlAvailable() is true (the enterprise service itself is
-// injected per-test as a mock).
+// enablePluginAccessControl licenses and configures the server so
+// pluginAccessControlAvailable() is true.
 func enablePluginAccessControl(t *testing.T, th *TestHelper) {
 	t.Helper()
 	ok := th.App.Srv().SetLicense(model.NewTestLicenseSKU(model.LicenseShortSkuEnterpriseAdvanced))
@@ -53,7 +50,7 @@ func validPluginPolicy(id string) *model.AccessControlPolicy {
 }
 
 // validForeignTypePolicy is a valid v0.3 channel policy used to plant a
-// foreign-type row under a plugin resource ID (global-ID-space anomaly).
+// foreign-type row under a plugin resource ID.
 func validForeignTypePolicy(id string) *model.AccessControlPolicy {
 	return &model.AccessControlPolicy{
 		ID:       id,
@@ -69,12 +66,9 @@ func validForeignTypePolicy(id string) *model.AccessControlPolicy {
 	}
 }
 
-// TestEvaluatePluginAccessRequest is the fail-closed contract matrix for the
-// plugin PDP call: AppErrors only for caller programming errors, every
-// operational condition an outcome, failures never mapping to allow. Whenever
-// evaluation is impossible, the server resolves policy EXISTENCE via a raw
-// store read: no stored row → no_policy (caller applies legacy behavior); any
-// stored row, or existence unknowable → unavailable (caller fails closed).
+// TestEvaluatePluginAccessRequest pins the fail-closed contract: AppErrors
+// only for caller programming errors, every operational condition an outcome,
+// and failures never mapping to allow.
 func TestEvaluatePluginAccessRequest(t *testing.T) {
 	th := Setup(t).InitBasic(t)
 
@@ -82,8 +76,8 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 	resourceType := model.AccessControlPolicyTypePluginAgent
 	action := model.AccessControlPolicyActionUse
 
-	// savePolicyRow plants a row directly in the open-core store (the
-	// fallback existence read is a raw store read, so arrangement matches).
+	// savePolicyRow plants a row directly in the open-core store, matching
+	// the raw fallback existence read.
 	savePolicyRow := func(t *testing.T, policy *model.AccessControlPolicy) {
 		t.Helper()
 		_, err := th.App.Srv().Store().AccessControlPolicy().Save(th.Context, policy)
@@ -127,14 +121,12 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 		mockACS.AssertNotCalled(t, "AccessEvaluation", mock.Anything, mock.Anything)
 	})
 
-	// Every evaluation-impossible branch is split: without a stored row the
-	// outcome is no_policy (existence resolved server-side even when ABAC is
-	// down); with a matching-type row it is unavailable (fail closed).
+	// Each branch is split: no stored row → no_policy; matching-type row → unavailable.
 	t.Run("evaluation-impossible branches resolve policy existence", func(t *testing.T) {
 		branches := []struct {
 			name string
-			// arrange configures the branch and returns the userID to
-			// evaluate with and the mock ACS (nil when the service is nil).
+			// arrange returns the userID to evaluate with and the mock ACS
+			// (nil when the service is nil).
 			arrange func(t *testing.T) (string, *mocks.AccessControlServiceInterface)
 		}{
 			{"service nil", func(t *testing.T) (string, *mocks.AccessControlServiceInterface) {
@@ -170,10 +162,9 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 				mockACS := &mocks.AccessControlServiceInterface{}
 				th.App.Srv().ch.AccessControl = mockACS
 
-				// Force BuildAccessControlSubject to fail by breaking the
-				// CPA property-group lookup. The fallback existence read
-				// uses a different store family (AccessControlPolicy) and
-				// must be unaffected.
+				// Break the CPA property-group lookup so
+				// BuildAccessControlSubject fails; the fallback existence
+				// read uses a different store and is unaffected.
 				mockGroupStore := &storemocks.PropertyGroupStore{}
 				mockGroupStore.
 					On("Get", model.AccessControlPropertyGroupName).
@@ -202,16 +193,14 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 				enablePluginAccessControl(t, th)
 				mockACS := &mocks.AccessControlServiceInterface{}
 				th.App.Srv().ch.AccessControl = mockACS
-				// Decision==true without an outcome is ambiguous between
-				// allow and no_policy — must not be guessed from.
+				// Decision==true without an outcome must not be guessed from.
 				mockACS.On("AccessEvaluation", mock.Anything, mock.Anything).
 					Return(model.AccessDecision{Decision: true}, nil).Once()
 				return userID, mockACS
 			}},
 		}
 
-		// The first two branches never reach the evaluator; assert that for
-		// the ones arranged with a mock but expected not to be called.
+		// Branches that must never reach the evaluator.
 		evaluatorNeverCalled := map[string]bool{
 			"insufficient license":  true,
 			"disabled config flag":  true,
@@ -253,10 +242,8 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 	})
 
 	t.Run("foreign-type row with ABAC off returns unavailable", func(t *testing.T) {
-		// DECISION: a row of a different type under the resource ID is a
-		// global-ID-space anomaly — the existence lane reports unavailable
-		// (fail closed + Warn), never fabricating deny from an unevaluated
-		// policy.
+		// A foreign-type row is an anomaly: unavailable, never a deny
+		// fabricated from an unevaluated policy.
 		enablePluginAccessControl(t, th)
 		mockACS := &mocks.AccessControlServiceInterface{}
 		th.App.Srv().ch.AccessControl = mockACS
@@ -280,8 +267,7 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 			name     string
 			decision model.AccessDecision
 			// saveRow plants a matching-type row to pin that the fallback
-			// existence read never runs on the happy path (a stored row
-			// must not flip an evaluator outcome).
+			// existence read never runs on the happy path.
 			saveRow  bool
 			expected model.AccessDecisionOutcome
 		}{
@@ -315,10 +301,9 @@ func TestEvaluatePluginAccessRequest(t *testing.T) {
 	})
 }
 
-// TestEvaluatePluginAccessRequestStoreError pins the conservative row of the
-// existence fallback: when the raw store read itself fails, existence is
-// unknowable and the outcome stays unavailable. Uses the store-mock helper
-// because a read error cannot be arranged on the real store.
+// TestEvaluatePluginAccessRequestStoreError pins that when the fallback store
+// read itself fails, the outcome stays unavailable. Uses the store-mock
+// helper because a read error cannot be arranged on the real store.
 func TestEvaluatePluginAccessRequestStoreError(t *testing.T) {
 	th := SetupWithStoreMock(t)
 
@@ -328,9 +313,8 @@ func TestEvaluatePluginAccessRequestStoreError(t *testing.T) {
 		Return(nil, errors.New("simulated store failure"))
 	mockStore.On("AccessControlPolicy").Return(mockACPStore)
 
-	// No license on a mock-store helper → pluginAccessControlAvailable() is
-	// false, so the ABAC-off branch runs: scope check → ID validation →
-	// availability(false) → fallback read.
+	// No license here, so pluginAccessControlAvailable() is false and the
+	// fallback read runs.
 	require.Nil(t, th.App.Srv().ch.AccessControl)
 
 	// Programming errors return before the fallback read.
@@ -474,8 +458,7 @@ func TestSavePluginAccessControlPolicy(t *testing.T) {
 	})
 
 	t.Run("wildcard action rejected, never rewritten", func(t *testing.T) {
-		// Risk pin: the legacy "*"→membership rewrite lives only in
-		// CreateOrUpdateAccessControlPolicy; the plugin path must reject.
+		// The legacy "*"→membership rewrite must not apply to the plugin path.
 		mockACS := &mocks.AccessControlServiceInterface{}
 		th.App.Srv().ch.AccessControl = mockACS
 
@@ -507,8 +490,7 @@ func TestSavePluginAccessControlPolicy(t *testing.T) {
 func TestGetPluginAccessControlPolicy(t *testing.T) {
 	th := Setup(t).InitBasic(t)
 
-	// The Get path tries every owned type through the atomic GetPolicyOfType;
-	// pin the (sorted) type set the loop iterates.
+	// Pin the (sorted) type set the Get loop iterates.
 	ownedTypes := model.PluginAccessControlResourceTypesOwnedBy(testAgentsPluginID)
 	require.Equal(t, []string{
 		model.AccessControlPolicyTypePluginAgent,
@@ -517,8 +499,7 @@ func TestGetPluginAccessControlPolicy(t *testing.T) {
 	}, ownedTypes)
 
 	// mockNotFoundForAllTypes mocks the enterprise 404 for every owned type,
-	// mimicking both "absent" and "stored under a foreign type" (the
-	// enterprise method verifies the type in-hand and 404s on mismatch).
+	// mimicking both "absent" and "stored under a foreign type".
 	mockNotFoundForAllTypes := func(mockACS *mocks.AccessControlServiceInterface, id, detail string) {
 		for _, rt := range ownedTypes {
 			mockACS.On("GetPolicyOfType", mock.Anything, id, rt).
@@ -560,14 +541,11 @@ func TestGetPluginAccessControlPolicy(t *testing.T) {
 		mockACS := &mocks.AccessControlServiceInterface{}
 		th.App.Srv().ch.AccessControl = mockACS
 
-		// Absent: nothing stored under the ID.
 		absentID := model.NewId()
 		mockNotFoundForAllTypes(mockACS, absentID, "resource: AccessControlPolicy id: "+absentID)
 
-		// Type-swap regression: a foreign (channel) policy sits under the ID
-		// — as if swapped in concurrently. The enterprise method verifies the
-		// type against its single read and 404s; there is no later unscoped
-		// read that could return the foreign policy.
+		// Type-swap regression: a foreign (channel) policy sits under the
+		// ID, as if swapped in concurrently.
 		swappedID := model.NewId()
 		mockNotFoundForAllTypes(mockACS, swappedID, "resource: AccessControlPolicy id: "+swappedID)
 
@@ -584,8 +562,7 @@ func TestGetPluginAccessControlPolicy(t *testing.T) {
 		// Indistinguishable despite differing enterprise details.
 		assert.Equal(t, absentErr.Error(), swappedErr.Error())
 
-		// Exactly one type-scoped fetch per owned type per call, and never
-		// the unscoped GetPolicy — nothing left for an invalidation to race.
+		// One type-scoped fetch per owned type per call; never the unscoped GetPolicy.
 		mockACS.AssertExpectations(t)
 		mockACS.AssertNumberOfCalls(t, "GetPolicyOfType", 2*len(ownedTypes))
 		mockACS.AssertNotCalled(t, "GetPolicy", mock.Anything, mock.Anything)
@@ -657,8 +634,8 @@ func TestDeletePluginAccessControlPolicy(t *testing.T) {
 		mockACS := &mocks.AccessControlServiceInterface{}
 		th.App.Srv().ch.AccessControl = mockACS
 
-		// The enterprise 404s deliberately carry different details (absent vs
-		// guarded-delete miss); the app layer must collapse both.
+		// The enterprise 404s carry different details; the app layer must
+		// collapse both.
 		absentID := model.NewId()
 		mismatchID := model.NewId()
 		mockACS.On("DeletePolicyOfType", mock.Anything, absentID, resourceType).
@@ -809,8 +786,7 @@ func TestPluginAccessControlCELProxies(t *testing.T) {
 }
 
 // pluginAuditCapture routes the test server's audit logger to a temp file so
-// tests can assert that plugin PAP methods emit audit records for every
-// attempt, not just successful ones.
+// tests can assert on emitted audit records.
 type pluginAuditCapture struct {
 	t    *testing.T
 	th   *TestHelper
@@ -879,15 +855,10 @@ func auditParam(t *testing.T, rec map[string]any, key string) any {
 	return params[key]
 }
 
-// TestPluginAccessControlAudit pins that Save/Delete audit EVERY attempt —
-// including precondition failures before the enterprise service is touched —
-// and that the records carry the actor/plugin/type/operation parameters and
-// the correct success/fail status.
-//
-// Operation semantics: Save stamps operation="create_or_update" from method
-// entry (create-vs-update is unknowable until the existence probe) and
-// refines it to "create"/"update" once resolved, so every failure record
-// still carries the upsert intent. Delete stamps "delete" from entry.
+// TestPluginAccessControlAudit pins that Save/Delete audit every attempt,
+// including precondition failures. Save stamps operation="create_or_update"
+// from entry and refines it to "create"/"update" once the existence probe
+// resolves; Delete stamps "delete".
 func TestPluginAccessControlAudit(t *testing.T) {
 	th := Setup(t).InitBasic(t)
 	capture := startPluginAuditCapture(t, th)
@@ -895,8 +866,7 @@ func TestPluginAccessControlAudit(t *testing.T) {
 	actingUserID := th.BasicUser.Id
 	resourceType := model.AccessControlPolicyTypePluginAgent
 
-	// assertNextRecord runs fn and asserts exactly one new audit record for
-	// event was emitted, returning it.
+	// assertNextRecord runs fn and returns the single new audit record for event.
 	assertNextRecord := func(t *testing.T, event, wantStatus string, fn func()) map[string]any {
 		t.Helper()
 		before := len(capture.recordsFor(event))
