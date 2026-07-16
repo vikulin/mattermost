@@ -26,7 +26,7 @@ func TestScheduleJobEnqueuesEachDueRecapAndSkipsDuplicateAtomically(t *testing.T
 		mockStore.AssertExpectations(t)
 	})
 
-	jobServer := jobs.NewJobServer(&testutils.StaticConfigService{Cfg: cfg}, mockStore, nil, mlog.CreateConsoleTestLogger(t))
+	jobServer := jobs.NewJobServer(&testutils.StaticConfigService{Cfg: cfg}, mockStore, nil, mlog.CreateConsoleTestLogger(t), nil)
 	jobServer.RegisterJobType(model.JobTypeScheduledRecap, jobs.NewSimpleWorker(
 		model.JobTypeScheduledRecap,
 		jobServer,
