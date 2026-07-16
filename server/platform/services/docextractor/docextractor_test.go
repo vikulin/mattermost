@@ -324,20 +324,18 @@ func waitForExtractionSlotsIdle(t *testing.T, limit int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		acquired := 0
+		ok := true
 		for range limit {
-			if tryAcquireExtractionSlot() {
-				acquired++
-				continue
+			if !tryAcquireExtractionSlot() {
+				ok = false
+				break
 			}
-			for range acquired {
-				releaseExtractionSlot()
-			}
-			return false
+			acquired++
 		}
 		for range acquired {
 			releaseExtractionSlot()
 		}
-		return true
+		return ok
 	}, 2*time.Second, 10*time.Millisecond, "extraction slots did not become idle")
 }
 
