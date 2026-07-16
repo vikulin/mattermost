@@ -1,8 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {render, screen} from '@testing-library/react';
-import React from 'react';
+import {act, render, screen} from '@testing-library/react';
+import React, {useState} from 'react';
 
 import {useStackedModal} from './useStackedModal';
 
@@ -13,17 +13,22 @@ import {wrapIntl} from '../testUtils';
 const BASE_MODAL_Z_INDEX = 1050;
 const Z_INDEX_INCREMENT = 10;
 
+// The mock below installs two `.modal-backdrop` elements, so a stacked
+// modal rendered under it sits at stacking depth 2.
+const MOCK_STACK_DEPTH = 2;
+
 // Mock component that directly uses the useStackedModal hook
 const TestComponent = ({
     isStacked = false,
     isOpen = true,
 }) => {
-    const {shouldRenderBackdrop, modalStyle} = useStackedModal(isStacked, isOpen);
+    const {shouldRenderBackdrop, modalStyle, backdropStyle} = useStackedModal(isStacked, isOpen);
 
     return (
         <div data-testid='test-component'>
             <div data-testid='should-render-backdrop'>{shouldRenderBackdrop.toString()}</div>
             <div data-testid='modal-z-index'>{modalStyle.zIndex || 'none'}</div>
+            <div data-testid='backdrop-z-index'>{backdropStyle?.zIndex ?? 'none'}</div>
             <div>Modal Content</div>
         </div>
     );
@@ -138,13 +143,15 @@ describe('useStackedModal', () => {
 
             expect(screen.getByTestId('should-render-backdrop')).toHaveTextContent('true');
             expect(screen.getByTestId('modal-z-index')).toHaveTextContent('none');
+            expect(screen.getByTestId('backdrop-z-index')).toHaveTextContent('none');
         });
 
-        test('stacked modals should have increased z-index', () => {
+        test('stacked modals should have increased z-index scaled by stacking depth', () => {
             render(<TestComponent isStacked={true}/>);
 
-            // Verify exact z-index calculation
-            const expectedZIndex = BASE_MODAL_Z_INDEX + Z_INDEX_INCREMENT;
+            // z-index scales with the number of modals beneath this one
+            // so each level sits above the previous stacked modal.
+            const expectedZIndex = BASE_MODAL_Z_INDEX + (MOCK_STACK_DEPTH * Z_INDEX_INCREMENT);
             expect(screen.getByTestId('modal-z-index')).toHaveTextContent(expectedZIndex.toString());
         });
     });
@@ -164,18 +171,15 @@ describe('useStackedModal', () => {
             expect(mockBackdrop2.style.transition).toBe('opacity 150ms ease-in-out');
         });
 
-        test('stacked modals should calculate backdrop z-index correctly', () => {
+        test('stacked modals place their backdrop just below their own modal', () => {
             render(<TestComponent isStacked={true}/>);
 
-            // The hook should calculate the backdrop z-index as stackedModalZIndex - 1
-            // Where stackedModalZIndex = BASE_MODAL_Z_INDEX + Z_INDEX_INCREMENT
-            const expectedBackdropZIndex = (BASE_MODAL_Z_INDEX + Z_INDEX_INCREMENT) - 1;
-
-            // We can't directly test this since the hook doesn't expose the backdrop z-index,
-            // but we can verify the hook's behavior by checking the modalStyle z-index
-            // and inferring that the backdrop z-index would be one less
-            const modalZIndex = parseInt(screen.getByTestId('modal-z-index').textContent || '0', 10);
-            expect(modalZIndex - 1).toBe(expectedBackdropZIndex);
+            // The backdrop must sit one below the stacked modal: high
+            // enough to dim the modal directly beneath it, low enough to
+            // stay behind this modal's own content.
+            const stackedModalZIndex = BASE_MODAL_Z_INDEX + (MOCK_STACK_DEPTH * Z_INDEX_INCREMENT);
+            expect(screen.getByTestId('modal-z-index')).toHaveTextContent(stackedModalZIndex.toString());
+            expect(screen.getByTestId('backdrop-z-index')).toHaveTextContent((stackedModalZIndex - 1).toString());
         });
 
         test('cleanup should restore original backdrop properties', () => {
@@ -263,5 +267,107 @@ describe('useStackedModal', () => {
             expect(style.opacity).toBe('0.7');
             expect(style.transition).toBe('opacity 150ms ease-in-out');
         });
+    });
+});
+
+// Rendered against the real DOM (no querySelectorAll mock) so the hook
+// sees the actual backdrop elements each stacked modal creates. This
+// covers stacks deeper than one level, which is where a fixed z-index
+// offset silently broke: the deepest modal's backdrop landed below the
+// modal beneath it and left that modal undimmed (regression: Channel
+// Settings → Simulate access → Decision details flashed the middle
+// modal to full brightness while the details modal was open).
+describe('useStackedModal - multi-level stacking (integration)', () => {
+    const flush = async () => {
+        await act(async () => {
+            await Promise.resolve();
+        });
+    };
+
+    function StackHarness() {
+        const [showMiddle, setShowMiddle] = useState(false);
+        const [showDeepest, setShowDeepest] = useState(false);
+        return (
+            <>
+                <button onClick={() => setShowMiddle(true)}>{'open-middle'}</button>
+                <button onClick={() => setShowDeepest(true)}>{'open-deepest'}</button>
+                <GenericModal
+                    show={true}
+                    onHide={jest.fn()}
+                    modalHeaderText='Base'
+                    id='baseModal'
+                >
+                    <div>base body</div>
+                </GenericModal>
+                {showMiddle ? (
+                    <GenericModal
+                        show={true}
+                        onHide={jest.fn()}
+                        modalHeaderText='Middle'
+                        id='middleModal'
+                        isStacked={true}
+                    >
+                        <div>middle body</div>
+                    </GenericModal>
+                ) : null}
+                {showDeepest ? (
+                    <GenericModal
+                        show={true}
+                        onHide={jest.fn()}
+                        modalHeaderText='Deepest'
+                        id='deepestModal'
+                        isStacked={true}
+                    >
+                        <div>deepest body</div>
+                    </GenericModal>
+                ) : null}
+            </>
+        );
+    }
+
+    const zIndexOf = (id: string): number => {
+        const el = document.getElementById(id) as HTMLElement | null;
+        return el ? parseInt(el.style.zIndex || '1050', 10) : NaN;
+    };
+
+    const topBackdrop = (): HTMLElement => {
+        const backdrops = document.querySelectorAll<HTMLElement>('.modal-backdrop');
+        return backdrops[backdrops.length - 1];
+    };
+
+    test('a third-level stacked modal dims the modal directly beneath it', async () => {
+        render(wrapIntl(<StackHarness/>));
+        await flush();
+
+        act(() => {
+            screen.getByText('open-middle').click();
+        });
+        await flush();
+
+        // Second level: the middle modal sits above the base modal and
+        // its backdrop dims the base modal.
+        expect(zIndexOf('middleModal')).toBeGreaterThan(zIndexOf('baseModal'));
+
+        act(() => {
+            screen.getByText('open-deepest').click();
+        });
+        await flush();
+
+        const deepestModalZ = zIndexOf('deepestModal');
+        const middleModalZ = zIndexOf('middleModal');
+        const deepestBackdrop = topBackdrop();
+        const deepestBackdropZ = parseInt(deepestBackdrop.style.zIndex || '0', 10);
+
+        // The deepest modal stacks above the middle modal...
+        expect(deepestModalZ).toBeGreaterThan(middleModalZ);
+
+        // ...and its backdrop is sandwiched between them, so the middle
+        // modal is dimmed instead of showing through at full brightness.
+        expect(deepestBackdropZ).toBeGreaterThan(middleModalZ);
+        expect(deepestBackdropZ).toBeLessThan(deepestModalZ);
+
+        // The dimming layer is actually visible (not the transparent
+        // backdrop the close-flash fix parks the covered modal at).
+        expect(deepestBackdrop.style.opacity).not.toBe('0');
     });
 });
