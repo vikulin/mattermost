@@ -117,10 +117,7 @@ export interface TableEditorProps {
     actions: {
         getVisualAST: (expr: string) => Promise<ActionResult>;
 
-        /** Overrides the searchUsersForExpression redux thunk backing the
-         *  built-in TestResultsModal. Used by plugins (via
-         *  window.Components.AccessControlTableEditor) to route the request
-         *  through their own proxy. Omission = current behavior. */
+        /** Overrides the searchUsersForExpression thunk backing the built-in TestResultsModal. */
         searchUsers?: (expression: string, term: string, after: string, limit: number) => Promise<ActionResult<AccessControlTestResult>>;
     };
 
@@ -683,9 +680,7 @@ function TableEditor({
                         openModal: () => {},
                         searchUsers: (term: string, after: string, limit: number) => {
                             if (actions.searchUsers) {
-                                // Pass-through thunk: resolves the injected promise
-                                // without touching the store, so TestResultsModal's
-                                // dispatch(...) needs no changes.
+                                // Wrap in a thunk so TestResultsModal can dispatch it unchanged.
                                 const search = actions.searchUsers;
                                 return () => search(value, term, after, limit);
                             }

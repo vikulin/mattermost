@@ -3,7 +3,6 @@
 
 import {lazy} from 'react';
 
-// Lazy-wrapped so that monaco-editor (statically imported by the CEL editor)
-// stays out of the main channels bundle; consumers render inside <Suspense>.
+// Lazy-wrapped so monaco-editor stays out of the main channels bundle; consumers render inside <Suspense>.
 export const AccessControlTableEditor = lazy(() => import(/* webpackChunkName: 'access-control-editors' */ 'components/admin_console/access_control/editors/table_editor/table_editor'));
 export const AccessControlCELEditor = lazy(() => import(/* webpackChunkName: 'access-control-editors' */ 'components/admin_console/access_control/editors/cel_editor/editor'));

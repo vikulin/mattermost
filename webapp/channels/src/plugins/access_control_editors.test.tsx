@@ -76,8 +76,7 @@ describe('plugins/access_control_editors', () => {
             {},
         );
 
-        // The placeholder div carries the editor's aria-label; the same text
-        // also appears in the help text, so query by label instead.
+        // The placeholder text also appears in the help text, so query by the editor's aria-label.
         expect(await screen.findByLabelText('CEL Expression Editor', {}, {timeout: 10000})).toHaveTextContent('user.attributes.<attribute> == <value>');
     });
 });

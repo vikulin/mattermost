@@ -450,7 +450,6 @@ describe('TableEditor - injected searchUsers', () => {
             },
         });
 
-        // Fallback thunk resolving an empty result set.
         (searchUsersForExpression as jest.Mock).mockImplementation(() => () => Promise.resolve({data: {users: [], total: 0}}));
     });
 

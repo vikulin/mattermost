@@ -69,19 +69,13 @@ const MONACO_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions 
     contextmenu: false,
 };
 
-/**
- * Injectable overrides for the editor's network touchpoints. Used by plugins
- * (via window.Components.AccessControlCELEditor) to route requests through
- * their own proxies instead of Client4/redux. Omission = current behavior.
- */
+/** Optional overrides for the editor's network calls, used by plugins consuming window.Components.AccessControlCELEditor. */
 export interface CELEditorActions {
 
-    /** Overrides Client4.checkAccessControlExpression. Receives only the
-     *  expression; resource scoping is the supplier's concern. */
+    /** Overrides Client4.checkAccessControlExpression. */
     checkExpression?: (expression: string) => Promise<CELExpressionError[]>;
 
-    /** Overrides the searchUsersForExpression redux thunk backing the
-     *  built-in TestResultsModal. */
+    /** Overrides the searchUsersForExpression thunk backing the built-in TestResultsModal. */
     searchUsers?: (expression: string, term: string, after: string, limit: number) => Promise<ActionResult<AccessControlTestResult>>;
 }
 
@@ -489,9 +483,7 @@ function CELEditor({
                         openModal: () => {},
                         searchUsers: (term: string, after: string, limit: number) => {
                             if (actions?.searchUsers) {
-                                // Pass-through thunk: resolves the injected promise
-                                // without touching the store, so TestResultsModal's
-                                // dispatch(...) needs no changes.
+                                // Wrap in a thunk so TestResultsModal can dispatch it unchanged.
                                 const search = actions.searchUsers;
                                 return () => search(editorState.expression, term, after, limit);
                             }
