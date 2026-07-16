@@ -2124,7 +2124,7 @@ func updateChannelMemberRoles(c *Context, w http.ResponseWriter, r *http.Request
 	props := model.MapFromJSON(r.Body)
 
 	newRoles := props["roles"]
-	if !(model.IsValidUserRoles(newRoles)) {
+	if !model.IsValidChannelMemberRoles(newRoles) {
 		c.SetInvalidParam("roles")
 		return
 	}
@@ -3219,6 +3219,16 @@ func getChannelAccessControlAttributes(c *Context, w http.ResponseWriter, r *htt
 
 	if ok, _ := c.App.SessionHasPermissionToChannel(c.AppContext, *c.AppContext.Session(), c.Params.ChannelId, model.PermissionReadChannel); !ok {
 		c.SetPermissionError(model.PermissionReadChannel)
+		return
+	}
+
+	// When channel policy indicators are disabled, the matching attribute
+	// values must not leak to end users — not through the UI nor this API.
+	// Return an empty set so callers simply render no indicators.
+	if !*c.App.Config().AccessControlSettings.EnableChannelPolicyIndicators {
+		if err := json.NewEncoder(w).Encode(map[string][]string{}); err != nil {
+			c.Logger.Warn("Error while writing response", mlog.Err(err))
+		}
 		return
 	}
 

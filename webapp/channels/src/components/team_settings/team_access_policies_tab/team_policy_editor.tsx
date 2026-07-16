@@ -11,11 +11,11 @@ import type {AccessControlPolicy, AccessControlPolicyActiveUpdate, AccessControl
 import type {ChannelSearchOpts, ChannelWithTeamData} from '@mattermost/types/channels';
 import type {AccessControlSettings} from '@mattermost/types/config';
 import type {JobTypeBase} from '@mattermost/types/jobs';
-import type {UserPropertyField} from '@mattermost/types/properties';
+import type {UserPropertyField} from '@mattermost/types/properties_user';
 
 import type {ActionResult} from 'mattermost-redux/types/actions';
 
-import {hasUsableAttributes} from 'components/admin_console/access_control/editors/shared';
+import {excludeSessionAttributes, hasUsableAttributes} from 'components/admin_console/access_control/editors/shared';
 import TableEditor from 'components/admin_console/access_control/editors/table_editor/table_editor';
 import ChannelList from 'components/admin_console/access_control/policy_details/channel_list';
 import ChannelSelectorModal from 'components/channel_selector_modal';
@@ -123,7 +123,7 @@ export default function TeamPolicyEditor({
     useEffect(() => {
         abacActions.getAccessControlFields('', 100).then((result) => {
             if (result.data) {
-                setAutocompleteResult(result.data);
+                setAutocompleteResult(excludeSessionAttributes(result.data));
             }
             setAttributesLoaded(true);
         }).catch(() => {
