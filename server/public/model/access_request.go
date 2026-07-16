@@ -225,9 +225,8 @@ const (
 // The Decision field is a boolean indicating whether the request is allowed or not.
 type AccessDecision struct {
 	Decision bool `json:"decision"`
-	// Outcome disambiguates allow vs no_policy; Decision remains the
-	// authoritative collapsed boolean for existing callers. unavailable is
-	// produced only by the open-core app layer, never by the evaluator.
+	// Outcome disambiguates allow vs no_policy for the plugin access-control
+	// APIs, its only consumer; core channel/team callers read Decision alone.
 	Outcome AccessDecisionOutcome `json:"outcome,omitempty"`
 	Context map[string]any        `json:"context,omitempty"`
 }
