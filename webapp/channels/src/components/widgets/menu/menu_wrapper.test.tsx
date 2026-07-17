@@ -257,13 +257,14 @@ describe('components/MenuWrapper', () => {
 
     test('should not close when clicking inside a menu rendered through a portal', async () => {
         const onToggle = jest.fn();
+        const portalRef = React.createRef<HTMLDivElement>();
         const {container} = render(
             <div>
-                <MenuWrapper onToggle={onToggle}>
+                <MenuWrapper onToggle={onToggle} portalNodeRef={portalRef}>
                     <button>{'title'}</button>
                     <div>{'menu'}</div>
                 </MenuWrapper>
-                <div data-menu-portal='true'>
+                <div ref={portalRef}>
                     <button>{'portaled item'}</button>
                 </div>
             </div>,
@@ -312,13 +313,14 @@ describe('components/MenuWrapper', () => {
     });
 
     test('should not close on TAB when focus moves into a menu rendered through a portal', async () => {
+        const portalRef = React.createRef<HTMLDivElement>();
         const {container} = render(
             <div>
-                <MenuWrapper>
+                <MenuWrapper portalNodeRef={portalRef}>
                     <button>{'title'}</button>
                     <div>{'menu'}</div>
                 </MenuWrapper>
-                <div data-menu-portal='true'>
+                <div ref={portalRef}>
                     <button>{'portaled item'}</button>
                 </div>
             </div>,

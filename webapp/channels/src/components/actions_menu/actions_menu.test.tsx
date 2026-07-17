@@ -172,7 +172,7 @@ describe('components/actions_menu/ActionsMenu', () => {
             />,
         );
 
-        const portal = document.body.querySelector('.post-actions-menu-mobile[data-menu-portal]');
+        const portal = document.body.querySelector('.post-actions-menu-mobile');
         expect(portal).not.toBeNull();
 
         // The menu is portaled onto the body, outside the component's own container.
@@ -205,7 +205,7 @@ describe('components/actions_menu/ActionsMenu', () => {
             />,
         );
 
-        const portal = document.body.querySelector('.post-actions-menu-mobile[data-menu-portal]');
+        const portal = document.body.querySelector('.post-actions-menu-mobile');
         const item = [...(portal?.querySelectorAll('button, a') ?? [])].
             find((el) => el.textContent === 'Run playbook');
         expect(item).toBeDefined();
@@ -225,7 +225,7 @@ describe('components/actions_menu/ActionsMenu', () => {
             />,
         );
 
-        expect(document.body.querySelector('[data-menu-portal]')).toBeNull();
+        expect(document.body.querySelector('.post-actions-menu-mobile')).toBeNull();
         expect(container.querySelector('.Menu')).not.toBeNull();
         expect(container).toHaveTextContent('App Marketplace');
     });

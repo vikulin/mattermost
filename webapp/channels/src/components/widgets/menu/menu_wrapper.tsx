@@ -28,6 +28,12 @@ type Props = {
     isDisabled?: boolean;
     stopPropagationOnToggle?: boolean;
     open?: boolean;
+
+    /**
+     * Ref to a menu node rendered outside this wrapper in the DOM (e.g. through a portal). Clicks and
+     * focus changes inside it are treated as inside the menu so it isn't closed prematurely.
+     */
+    portalNodeRef?: React.RefObject<HTMLElement>;
 };
 
 type State = {
@@ -108,13 +114,11 @@ export default class MenuWrapper extends React.PureComponent<Props, State> {
     private closeOnBlur = (e: Event) => {
         const target = e.target as Node;
 
-        if (this.node && this.node.current && target && this.node.current.contains(target)) {
+        if (target && this.node.current?.contains(target)) {
             return;
         }
 
-        // The menu may be rendered through a portal (e.g. ActionsMenu in mobile view), so it lives
-        // outside this wrapper in the DOM. Treat clicks inside a portaled menu as clicks inside the menu.
-        if (target instanceof Element && target.closest('[data-menu-portal]')) {
+        if (target && this.props.portalNodeRef?.current?.contains(target)) {
             return;
         }
 

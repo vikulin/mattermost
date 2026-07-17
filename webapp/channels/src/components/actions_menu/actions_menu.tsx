@@ -95,6 +95,7 @@ export class ActionMenuClass extends React.PureComponent<Props, State> {
         pluginMenuItems: [],
     };
     private buttonElement: HTMLButtonElement | null = null;
+    private menuPortalRef = React.createRef<HTMLDivElement>();
 
     constructor(props: Props) {
         super(props);
@@ -357,11 +358,13 @@ export class ActionMenuClass extends React.PureComponent<Props, State> {
             // In mobile view the menu renders as a full-screen fixed overlay. Posts live inside the
             // virtualized post list, whose `will-change: transform` makes it the containing block for
             // fixed descendants, so the overlay would anchor to the scrolled content instead of the
-            // viewport. Portaling to the body escapes that containing block.
+            // viewport. Portaling to the body escapes that containing block, and we hand the portal
+            // node to MenuWrapper so its blur handling still treats the menu as inside itself.
             return (
                 <MenuWrapper
                     open={this.props.isMenuOpen}
                     onToggle={this.handleDropdownOpened}
+                    portalNodeRef={this.menuPortalRef}
                 >
                     <ActionsMenuButton
                         ref={this.buttonRef}
@@ -372,7 +375,7 @@ export class ActionMenuClass extends React.PureComponent<Props, State> {
                     {this.props.isMobileView ? createPortal(
                         <div
                             className='post-actions-menu-mobile'
-                            data-menu-portal='true'
+                            ref={this.menuPortalRef}
                         >
                             {menu}
                         </div>,
