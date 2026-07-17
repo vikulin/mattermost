@@ -49,6 +49,7 @@ describe('components/ChannelHeader', () => {
         remoteNames: [],
 
         isChannelAutotranslated: false,
+        hasPendingJoinRequests: false,
     };
 
     const populatedProps = {

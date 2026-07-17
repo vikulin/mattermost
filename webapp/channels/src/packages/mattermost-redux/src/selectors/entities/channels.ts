@@ -35,12 +35,15 @@ import {
     getMyCurrentChannelMembership as getMyCurrentChannelMembershipInternal,
     getUsers,
 } from 'mattermost-redux/selectors/entities/common';
-import {getConfig} from 'mattermost-redux/selectors/entities/general';
+import {getConfig, isDiscoverableChannelsEnabled} from 'mattermost-redux/selectors/entities/general';
 import {
     getTeammateNameDisplaySetting,
     isCollapsedThreadsEnabled,
 } from 'mattermost-redux/selectors/entities/preferences';
 import {
+    getMyPermissionsByChannel,
+    getMyPermissionsByTeam,
+    getMySystemPermissions,
     haveIChannelPermission,
     haveICurrentChannelPermission,
     haveITeamPermission,
@@ -945,6 +948,67 @@ export function canManageAnyChannelMembersInCurrentTeam(state: GlobalState): boo
 
     return false;
 }
+
+// Whether the current user can review (approve/deny) join requests for the
+// given discoverable private channel. Shared across the channel header, members
+// RHS, and sidebar so the authorization rule stays in one place.
+export function canManageChannelJoinRequests(state: GlobalState, channel: Channel | null | undefined): boolean {
+    if (!channel || !isDiscoverableChannelsEnabled(state)) {
+        return false;
+    }
+
+    if (channel.type !== General.PRIVATE_CHANNEL || channel.discoverable !== true || channel.delete_at !== 0) {
+        return false;
+    }
+
+    return haveIChannelPermission(
+        state,
+        channel.team_id,
+        channel.id,
+        Permissions.MANAGE_CHANNEL_JOIN_REQUESTS,
+    );
+}
+
+// Memoized list of every discoverable private channel id the current user can
+// review join requests for. Kept in mattermost-redux with granular permission
+// inputs so it only recomputes when channels or permissions change, rather than
+// on every dispatched action.
+export const getManageableDiscoverableChannelIds: (state: GlobalState) => string[] = createIdsSelector(
+    'getManageableDiscoverableChannelIds',
+    isDiscoverableChannelsEnabled,
+    getMyChannels,
+
+    // Wrapped so the roles selectors resolve at call time; referencing them
+    // directly here breaks under the channels <-> roles circular import, where
+    // the imports are still undefined while this module initializes.
+    (state: GlobalState) => getMySystemPermissions(state),
+    (state: GlobalState) => getMyPermissionsByTeam(state),
+    (state: GlobalState) => getMyPermissionsByChannel(state),
+    (enabled, channels, systemPermissions, permissionsByTeam, permissionsByChannel): string[] => {
+        if (!enabled) {
+            return [];
+        }
+
+        const isDiscoverablePrivate = (channel: Channel) =>
+            channel.type === General.PRIVATE_CHANNEL && channel.discoverable === true && channel.delete_at === 0;
+
+        if (systemPermissions.has(Permissions.MANAGE_CHANNEL_JOIN_REQUESTS)) {
+            return channels.
+                filter(isDiscoverablePrivate).
+                map((channel) => channel.id);
+        }
+
+        return channels.
+            filter((channel) => {
+                if (!isDiscoverablePrivate(channel)) {
+                    return false;
+                }
+                return Boolean(channel.team_id && permissionsByTeam[channel.team_id]?.has(Permissions.MANAGE_CHANNEL_JOIN_REQUESTS)) ||
+                    Boolean(permissionsByChannel[channel.id]?.has(Permissions.MANAGE_CHANNEL_JOIN_REQUESTS));
+            }).
+            map((channel) => channel.id);
+    },
+);
 
 export const getAllDirectChannelIds: (state: GlobalState) => string[] = createIdsSelector(
     'getAllDirectChannelIds',
