@@ -285,20 +285,24 @@ describe('useFocusTrap', () => {
             spyOn(HTMLElement.prototype, 'getBoundingClientRect').
             mockReturnValue({width: 100, height: 20, x: 0, y: 0, top: 0, left: 0, right: 100, bottom: 20, toJSON: () => ({})} as DOMRect);
 
-        render(<PointerEventsFocusTrapComponent />);
+        // Restore the global spy in finally so a failed render or assertion
+        // cannot leak the mock into subsequent tests.
+        try {
+            render(<PointerEventsFocusTrapComponent />);
 
-        const button1 = screen.getByTestId('pe-button1');
-        const button2 = screen.getByTestId('pe-button2');
+            const button1 = screen.getByTestId('pe-button1');
+            const button2 = screen.getByTestId('pe-button2');
 
-        // Focus the last button, then Tab. The trap must cycle back to the first
-        // button, which only happens if both buttons were detected as focusable.
-        button2.focus();
-        expect(document.activeElement).toBe(button2);
+            // Focus the last button, then Tab. The trap must cycle back to the first
+            // button, which only happens if both buttons were detected as focusable.
+            button2.focus();
+            expect(document.activeElement).toBe(button2);
 
-        document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', code: 'Tab', bubbles: true, cancelable: true}));
+            document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', code: 'Tab', bubbles: true, cancelable: true}));
 
-        expect(document.activeElement).toBe(button1);
-
-        rectSpy.mockRestore();
+            expect(document.activeElement).toBe(button1);
+        } finally {
+            rectSpy.mockRestore();
+        }
     });
 });
