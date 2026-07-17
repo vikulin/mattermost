@@ -370,6 +370,7 @@ jobs:
     permissions: {}
     runs-on: ubuntu-22.04
     needs:
+      - go
       - merge-postgres-test-results
       - test-elasticsearch-v8
       - test-opensearch-v2
@@ -379,7 +380,14 @@ jobs:
       - merge-postgres-fips-test-results
     steps:
       - name: Server CI Complete
-        run: echo "Server CI Complete"
+        run: |
+          # Explicitly fail here rather than relying on `if:`, since a job
+          # skipped via `if:` is reported as "Success" by GitHub.
+          if [ "${{ needs.go.result }}" != "success" ]; then
+            echo "::error::'go' job did not succeed (result: ${{ needs.go.result }}); relevant-changed could not be computed reliably. Failing Server CI Complete."
+            exit 1
+          fi
+          echo "Server CI Complete"
 
   ci-report:
     name: Server CI Report
