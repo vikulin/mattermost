@@ -252,6 +252,24 @@ describe('components/TeamSettings', () => {
         );
     });
 
+    test('parent-policy fetch failure: modal falls back to the generic message', async () => {
+        getTeamAccessControlPolicy.mockResolvedValueOnce({
+            data: {policy: {id: 'team_id', rules: [], imports: ['parent1']}, enforced: true},
+        });
+        getAccessControlPolicy.mockResolvedValueOnce({error: {message: 'boom'}});
+
+        const props = {
+            ...defaultProps,
+            team: TestHelper.getTeamMock({id: 'team_id', type: 'O', allow_open_invite: true, policy_enforced: true}),
+            teamMembershipAccessControlEnabled: true,
+        };
+        renderWithContext(<AccessTab {...props}/>);
+        await userEvent.click(screen.getByText('Private Team'));
+
+        expect(await screen.findByText(/Some members may not meet/i)).toBeInTheDocument();
+        expect(screen.queryByText(/do not meet criteria/i)).not.toBeInTheDocument();
+    });
+
     test('own-rules governed team: mode-flip modal counts from the inline expression', async () => {
         getTeamAccessControlPolicy.mockResolvedValueOnce({
             data: {

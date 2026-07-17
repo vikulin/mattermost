@@ -79,10 +79,14 @@ const AccessTab = ({showTabSwitchError, areThereUnsavedChanges, setShowTabSwitch
             const parentPolicies = await Promise.all(
                 parentIds.map((id) => actions.getAccessControlPolicy(id)),
             );
-            const parentExpressions = parentPolicies.map((result) => {
-                const parent = result?.data as AccessControlPolicy | undefined;
-                return getMembershipRule(parent?.rules)?.expression;
-            });
+
+            // A dropped import would understate the count; fall back to the generic message.
+            if (parentPolicies.some((result) => result?.error || !result?.data)) {
+                return null;
+            }
+            const parentExpressions = parentPolicies.map((result) =>
+                getMembershipRule((result.data as AccessControlPolicy).rules)?.expression,
+            );
 
             const expression = combineMembershipExpressions([teamExpression, ...parentExpressions]);
 
