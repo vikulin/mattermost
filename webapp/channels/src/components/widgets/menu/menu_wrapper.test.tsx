@@ -260,7 +260,10 @@ describe('components/MenuWrapper', () => {
         const portalRef = React.createRef<HTMLDivElement>();
         const {container} = render(
             <div>
-                <MenuWrapper onToggle={onToggle} portalNodeRef={portalRef}>
+                <MenuWrapper
+                    onToggle={onToggle}
+                    portalNodeRef={portalRef}
+                >
                     <button>{'title'}</button>
                     <div>{'menu'}</div>
                 </MenuWrapper>
