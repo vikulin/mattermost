@@ -28,6 +28,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   go:
@@ -58,7 +59,7 @@ jobs:
             **/go.mod
       - name: Setup build environment
         env:
-          CHAINCTL_IDENTITY: ee399b4c72dd4e58e3d617f78fc47b74733c9557/922f2d48307d6f5f
+          CHAINCTL_IDENTITY: 812f2c1f17b88f862a9187b9bec1d57d8cc4c5a5/b0079db73a1c5c23
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         uses: ./.github/actions/setup-buildenv
