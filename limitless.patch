@@ -1,0 +1,24 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -59,7 +59,7 @@ MMCTL_LDFLAGS += -X "$(MMCTL_PKG).buildDate=$(MMCTL_BUILD_DATE)"
+ 
+ # Enterprise
+ BUILD_ENTERPRISE_DIR ?= ../../enterprise
+-BUILD_ENTERPRISE ?= true
++BUILD_ENTERPRISE ?= false
+ BUILD_ENTERPRISE_READY = false
+ BUILD_TYPE_NAME = team
+ BUILD_HASH_ENTERPRISE = none
+diff --git a/channels/app/limits.go b/channels/app/limits.go
+--- a/channels/app/limits.go
++++ b/channels/app/limits.go
+@@ -12,8 +12,8 @@ import (
+ )
+ 
+ const (
+-	maxUsersLimit     = 200
+-	maxUsersHardLimit = 250
++	maxUsersLimit     = 5_000_000
++	maxUsersHardLimit = 11_000_000
+ )
